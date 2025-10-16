@@ -1,0 +1,16 @@
+{
+    "name": "TinyVoters.app",
+    "short_name": "TinyVoters.app",
+    "start_url": "index.html",
+    "display": "fullscreen",
+    "display_override": ["fullscreen", "standalone", "minimal-ui"],
+    "background_color": "#231F20",
+    "theme_color": "#000",
+    "description": "Tiny Voters Description",
+    "icons": [{
+      "src": "TemplateData/icons/unity-logo-dark.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }]
+  }
