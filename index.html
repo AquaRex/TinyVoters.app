@@ -3,11 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>TinyVoters.app</title>
-    <link rel="manifest" href="manifest.json">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Unity Web Player | TinyVoters.app</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
     <link rel="manifest" href="manifest.webmanifest">
@@ -61,12 +57,12 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/Packaged.loader.js";
+      var loaderUrl = buildUrl + "/Update.loader.js";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/Packaged.data.unityweb",
-        frameworkUrl: buildUrl + "/Packaged.framework.js.unityweb",
-        codeUrl: buildUrl + "/Packaged.wasm.unityweb",
+        dataUrl: buildUrl + "/Update.data.unityweb",
+        frameworkUrl: buildUrl + "/Update.framework.js.unityweb",
+        codeUrl: buildUrl + "/Update.wasm.unityweb",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "LitterBoxGames",
         productName: "TinyVoters.app",
