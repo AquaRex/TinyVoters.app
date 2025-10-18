@@ -1,9 +1,9 @@
 const cacheName = "LitterBoxGames-TinyVoters.app-0.0.1";
 const contentToCache = [
-    "Build/Update.loader.js",
-    "Build/Update.framework.js.unityweb",
-    "Build/Update.data.unityweb",
-    "Build/Update.wasm.unityweb",
+    "Build/Release.loader.js",
+    "Build/Release.framework.js.unityweb",
+    "Build/Release.data.unityweb",
+    "Build/Release.wasm.unityweb",
     "TemplateData/style.css"
 
 ];
