@@ -95,6 +95,18 @@
       loadingBar.style.display = "block";
 
       var script = document.createElement("script");
+
+      // --- CACHE BUSTING PATCH ---
+      // Generate a unique build version (timestamp or manual version)
+      const UNITY_BUILD_VERSION = Date.now(); // or "2025.10.18.1" etc.
+
+      // Append version query to every important file
+      loaderUrl += "?v=" + UNITY_BUILD_VERSION;
+      config.dataUrl += "?v=" + UNITY_BUILD_VERSION;
+      config.frameworkUrl += "?v=" + UNITY_BUILD_VERSION;
+      config.codeUrl += "?v=" + UNITY_BUILD_VERSION;
+      // --- END CACHE BUSTING PATCH ---
+    
       script.src = loaderUrl;
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
