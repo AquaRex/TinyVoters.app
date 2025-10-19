@@ -1,4 +1,4 @@
-const cacheName = "LitterBoxGames-TinyVoters.app-0.0.1";
+const cacheName = "LitterBoxGames-TinyVoters.app-0.1.0";
 const contentToCache = [
     "Build/Release.loader.js",
     "Build/Release.framework.js.unityweb",
