@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Unity Web Player | TinyVoters.app</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="shortcut icon" href="TemplateData/AppLogo.png">
+    <link rel="icon" type="image/png" href="TemplateData/AppLogo.png">
     <link rel="stylesheet" href="TemplateData/style.css">
     <link rel="manifest" href="manifest.webmanifest">
   </head>
@@ -93,6 +94,11 @@
 
 
       loadingBar.style.display = "block";
+      
+      // Show progress bar only after 5 seconds
+      var showProgressBarTimer = setTimeout(() => {
+        document.querySelector("#unity-progress-bar-empty").style.display = "block";
+      }, 5000);
 
       var script = document.createElement("script");
       script.src = loaderUrl;
@@ -100,8 +106,10 @@
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
         }).then((unityInstance) => {
+          clearTimeout(showProgressBarTimer);
           loadingBar.style.display = "none";
         }).catch((message) => {
+          clearTimeout(showProgressBarTimer);
           alert(message);
         });
       };
