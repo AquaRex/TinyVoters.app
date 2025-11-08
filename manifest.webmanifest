@@ -1,6 +1,6 @@
 {
-    "name": "TinyVoters.app",
-    "short_name": "TinyVoters.app",
+    "name": "TinyVoters",
+    "short_name": "TinyVoters",
     "start_url": "index.html",
     "display": "fullscreen",
     "background_color": "#231F20",
