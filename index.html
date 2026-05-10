@@ -27,9 +27,28 @@
     </div>
     <script>
       window.addEventListener("load", function () {
-        if ("serviceWorker" in navigator) {
-          navigator.serviceWorker.register("ServiceWorker.js");
-        }
+        if (!("serviceWorker" in navigator)) return;
+        // updateViaCache:'none' tells the browser never to use its HTTP cache
+        // for ServiceWorker.js itself, so version bumps are discovered on the
+        // very next load instead of up to 24h later.
+        navigator.serviceWorker.register("ServiceWorker.js", { updateViaCache: 'none' })
+          .then(function (reg) {
+            // When a brand-new worker takes control of this page (i.e. an
+            // update was downloaded and activated), reload once so the page
+            // and its assets all come from the new version. The
+            // hasReloaded flag prevents reload loops.
+            var hasReloaded = false;
+            navigator.serviceWorker.addEventListener('controllerchange', function () {
+              if (hasReloaded) return;
+              hasReloaded = true;
+              window.location.reload();
+            });
+            // Poke the browser to check for a new SW whenever the tab
+            // becomes visible again (covers PWA resume on iOS).
+            document.addEventListener('visibilitychange', function () {
+              if (document.visibilityState === 'visible') reg.update();
+            });
+          });
       });
 
       var container = document.querySelector("#unity-container");
