@@ -1,0 +1,47 @@
+# Publishes tinyvoters.app: the Unity build as-is at the root, and Tiny Agents (built from TinyAgents/) at /tinyagents/.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: TinyAgents/package-lock.json
+      - name: Build Tiny Agents
+        working-directory: TinyAgents
+        run: |
+          npm ci
+          npm run build -- --base=/tinyagents/ --outDir ../_site/tinyagents
+      - name: Add TinyVoters
+        run: cp -r CNAME index.html manifest.webmanifest ServiceWorker.js Build TemplateData _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

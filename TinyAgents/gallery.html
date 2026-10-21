@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tiny Agents Art Gallery</title>
+    <style>
+      :root {
+        --bg: #26211f;
+        --panel: #322b28;
+        --line: #4a403b;
+        --text: #efe4d0;
+        --muted: #b7a796;
+        --accent: #e3b341;
+        --warn: #e36a5c;
+        --swatch: #8f8880;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.4 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 14px;
+        align-items: center;
+        padding: 10px 16px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+      }
+      header b {
+        color: var(--accent);
+        margin-right: 8px;
+      }
+      header a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      header a.on,
+      header a:hover {
+        color: var(--text);
+        text-decoration: underline;
+      }
+      main {
+        padding: 12px 16px 40px;
+      }
+      h2 {
+        margin: 22px 0 8px;
+        font-size: 15px;
+        color: var(--accent);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 4px;
+      }
+      .asset {
+        margin: 10px 0 18px;
+      }
+      .asset .title {
+        margin-bottom: 6px;
+      }
+      .asset .title .id {
+        color: var(--text);
+        font-weight: bold;
+      }
+      .asset .title .meta {
+        color: var(--muted);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: flex-end;
+      }
+      .cell {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        padding: 6px;
+        border-radius: 4px;
+      }
+      .cell .cap {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 4px;
+      }
+      .pair {
+        display: flex;
+        gap: 6px;
+        align-items: flex-end;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+      }
+      .note {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header id="nav"></header>
+    <main id="out"></main>
+    <script type="module" src="/src/gallery.ts"></script>
+  </body>
+</html>

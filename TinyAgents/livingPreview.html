@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Living Spaces Preview</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px 16px 40px;
+        background: #26211f;
+        color: #efe4d0;
+        font: 13px/1.4 ui-monospace, Consolas, monospace;
+      }
+      h2 {
+        margin: 18px 0 8px;
+        font-size: 15px;
+        color: #e3b341;
+      }
+      a {
+        color: #b7a796;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+    </style>
+  </head>
+  <body>
+    <div>Living spaces preview · <a href="?">day</a> · <a href="?night=1">night</a> · <a href="?zoom=2">2×</a> · <a href="?zoom=3">3×</a></div>
+    <main id="out"></main>
+    <script type="module" src="/src/livingPreview.ts"></script>
+  </body>
+</html>

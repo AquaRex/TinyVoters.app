@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#2c2e3b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Tiny Agents" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <title>Tiny Agents</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect x='2' y='0' width='4' height='4' fill='%23ffd34d'/%3E%3Crect x='0' y='4' width='4' height='4' fill='%234fa3d9'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23e07a9f'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <canvas id="world"></canvas>
+
+    <header id="topbar">
+      <div class="brand"><span class="logo" aria-hidden="true"></span>Tiny Agents</div>
+      <button id="office" class="pill" data-state="connecting" title="Connect Claude Code">Connecting…</button>
+      <span class="spacer"></span>
+      <button id="demoBtn" title="Fill the office with built-in demo staff">Demo staff</button>
+      <button id="timeBtn" title="Follow your local clock, or keep it a sunny afternoon">Clock</button>
+      <button id="modeBtn">Edit office</button>
+      <button id="helpBtn" aria-label="Help">?</button>
+    </header>
+
+    <aside id="roster"></aside>
+    <aside id="agentPanel" hidden></aside>
+    <section id="editor" hidden></section>
+
+    <div id="emptyHint" hidden>
+      <b>The office is quiet.</b>
+      Start a Claude Code session on a connected computer and your agents will walk in.
+      <small>Not set up yet? <button class="cn-link">Add a computer</button></small>
+    </div>
+
+    <div id="connect" hidden></div>
+
+    <div id="help" hidden>
+      <button class="close" aria-label="Close help">&times;</button>
+      <h2>Tiny Agents</h2>
+      <p>Every active Claude Code session (and each subagent it spawns) shows up as a tiny coworker who drives in, parks, and takes the elevator up. Busy agents sit at their desk and type; when Claude is waiting on you they take breaks, grab coffee, and chat.</p>
+      <h3>Look around</h3>
+      <ul>
+        <li><kbd>Drag</kbd> or <kbd>WASD</kbd> to pan, <kbd>Scroll</kbd> to zoom</li>
+        <li>Click an agent to see what they're up to and change their look</li>
+        <li><b>Clock</b> follows your local time (night falls outside), <b>Day</b> keeps it sunny</li>
+      </ul>
+      <h3>Edit the office</h3>
+      <ul>
+        <li><kbd>E</kbd> toggles edit mode</li>
+        <li>Assets: furniture, decor and outdoor pieces · Select: move, rotate (<kbd>R</kbd>), swap for a look-alike, <kbd>Del</kbd></li>
+        <li>Right-drag or <kbd>Space</kbd>+drag pans while editing</li>
+      </ul>
+      <h3>Connect Claude</h3>
+      <ol>
+        <li>Tap the status pill at the top → <b>Create my office</b></li>
+        <li><b>Add a computer</b>: paste the setup prompt into Claude Code on each computer, once</li>
+        <li><b>Add a device</b>: join from your phone or other browsers with a code</li>
+      </ol>
+      <p>Click a Claude agent to follow what it's doing and read the conversation. Reply in VS Code, or from your phone with Remote Control in the Claude app.</p>
+    </div>
+
+    <div id="toast" role="status"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

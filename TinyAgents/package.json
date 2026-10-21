@@ -1,0 +1,17 @@
+{
+  "name": "tiny-agents",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "simulate": "node server/simulate.mjs",
+    "install-hooks": "node server/install-hooks.mjs",
+    "build": "tsc && vite build",    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
