@@ -34,7 +34,7 @@ it); `npm run simulate -- <computer key>` posts fake sessions for testing.
 
 ## Controls
 
-- Drag or WASD to pan, scroll to zoom. Click a person to see their needs and activity and change their look.
+- Drag or WASD to pan. Scroll, pinch, `+`/`-` or the on-screen buttons zoom, from the whole map down to close-ups. Click a person to see their needs and activity and change their look.
 - **Demo staff**: toggles the simulated colleagues.
 - **Clock / Day**: follows your local time (with day, dusk and night lighting) or keeps a sunny afternoon. `?time=21` forces an hour.
 - **Edit office** (`E`):

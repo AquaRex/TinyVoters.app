@@ -72,6 +72,7 @@ body::after {
 /* pixel-ish panel frame */
 #topbar,
 #roster,
+#zoomCtl,
 #agentPanel,
 #editor,
 #help,
@@ -210,6 +211,7 @@ body.editing #roster {
   font-weight: 600;
   display: flex;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .ro-count {
@@ -289,6 +291,36 @@ body.editing #roster {
   50% {
     opacity: 0.3;
   }
+}
+
+/* zoom buttons */
+#zoomCtl {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 4px;
+}
+
+body.editing #zoomCtl {
+  display: none;
+}
+
+#zoomCtl button {
+  width: 40px;
+  height: 40px;
+  font-size: 22px;
+  line-height: 1;
+  background: var(--panel-2);
+  border: 2px solid var(--frame);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+}
+
+#zoomCtl button:hover {
+  background: var(--hover);
 }
 
 /* agent panel */
@@ -645,9 +677,15 @@ body.editing #roster {
   }
   #roster {
     width: auto;
-    right: 8px;
+    right: 72px;
     left: 8px;
     max-height: 30vh;
+  }
+  #roster.collapsed {
+    right: auto;
+  }
+  #zoomCtl {
+    right: 8px;
   }
   #agentPanel {
     left: 8px;
@@ -1099,6 +1137,7 @@ button.pill:hover {
 }
 
 #roster,
+#zoomCtl,
 #editor {
   bottom: max(12px, env(safe-area-inset-bottom));
 }

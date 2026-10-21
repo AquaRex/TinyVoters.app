@@ -1,4 +1,4 @@
-import { TILE, WALL_FACE_H, WALL_LINE, ZOOM_LEVELS } from '../config';
+import { MAX_CSS_ZOOM, TILE, WALL_FACE_H, WALL_LINE, ZOOM_LEVELS } from '../config';
 import { variant } from '../art/registry';
 import { AssetDef, Dir, Part, Variant } from '../art/types';
 import { PlacedItem } from '../world/layout';
@@ -10,6 +10,7 @@ import { WallGeom, WallSprite, buildWallSprite, wallGeom } from './walls';
 export interface Camera {
   x: number;
   y: number;
+  /** Device px per world px, one of ZOOM_LEVELS. */
   zoom: number;
 }
 
@@ -114,6 +115,8 @@ export class Renderer<A extends AgentView = AgentView> {
   private doorOpen = new Map<number, number>();
   private time = 0;
   private last = performance.now();
+  private worldW = 0;
+  private worldH = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -126,9 +129,36 @@ export class Renderer<A extends AgentView = AgentView> {
     this.canvas.height = Math.floor(window.innerHeight * dpr);
   }
 
-  /** Device px per world px: always a whole number so pixels stay square and crisp. */
+  /** Device px per world px. */
   get scale(): number {
-    return Math.max(1, Math.round(this.camera.zoom * (window.devicePixelRatio || 1)));
+    return this.camera.zoom;
+  }
+
+  /** CSS px per world px: turns finger and mouse movement into world movement. */
+  get cssScale(): number {
+    return this.camera.zoom / (window.devicePixelRatio || 1);
+  }
+
+  /** From the level where the whole map fits on screen, in to MAX_CSS_ZOOM. */
+  private get zoomLevels(): number[] {
+    const fit = Math.min(this.canvas.width / this.worldW, this.canvas.height / this.worldH);
+    const inRange = ZOOM_LEVELS.filter((z) => z <= MAX_CSS_ZOOM * (window.devicePixelRatio || 1));
+    const min = Math.max(inRange[0], ...inRange.filter((z) => z <= fit));
+    return inRange.filter((z) => z >= min);
+  }
+
+  /** Zooms to the level closest to `zoom`, keeping the world point under screen point (sx, sy) in place. */
+  zoomTo(sx: number, sy: number, zoom: number): void {
+    const dist = (z: number) => Math.abs(Math.log(z / zoom));
+    const next = this.zoomLevels.reduce((best, z) => (dist(z) < dist(best) ? z : best));
+    if (next === this.camera.zoom) {
+      return;
+    }
+    const [wx, wy] = this.screenToWorld(sx, sy);
+    this.camera.zoom = next;
+    const [wx2, wy2] = this.screenToWorld(sx, sy);
+    this.camera.x += wx - wx2;
+    this.camera.y += wy - wy2;
   }
 
   private get origin(): [number, number] {
@@ -143,17 +173,12 @@ export class Renderer<A extends AgentView = AgentView> {
     return [(sx * dpr - tx) / s, (sy * dpr - ty) / s];
   }
 
+  /** One level in (`direction` 1) or out (-1) around screen point (sx, sy). */
   zoomAt(sx: number, sy: number, direction: number): void {
-    const idx = ZOOM_LEVELS.indexOf(this.camera.zoom);
-    const next = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx + direction))];
-    if (next === this.camera.zoom) {
-      return;
-    }
-    const [wx, wy] = this.screenToWorld(sx, sy);
-    this.camera.zoom = next;
-    const [wx2, wy2] = this.screenToWorld(sx, sy);
-    this.camera.x += wx - wx2;
-    this.camera.y += wy - wy2;
+    const levels = this.zoomLevels;
+    const idx = levels.findIndex((z) => z >= this.camera.zoom);
+    const at = idx < 0 ? levels.length - 1 : idx;
+    this.zoomTo(sx, sy, levels[Math.max(0, Math.min(levels.length - 1, at + direction))]);
   }
 
   /** Vertical px offset for wall-layer art on wall tile (x, y): the footprint's bottom edge sits on the face's floor line. */
@@ -168,6 +193,8 @@ export class Renderer<A extends AgentView = AgentView> {
   private rebuild(office: Office): void {
     this.builtVersion = office.version;
     const { w, h } = office;
+    this.worldW = w * TILE;
+    this.worldH = h * TILE;
     this.geoms.clear();
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -343,7 +370,7 @@ export class Renderer<A extends AgentView = AgentView> {
     ctx.fillStyle = VOID;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(s, 0, 0, s, tx, ty);
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = s < 1;
 
     const view: Rect = { x: -tx / s, y: -ty / s, w: canvas.width / s, h: canvas.height / s };
     const pad: Rect = { x: view.x - TILE * 2, y: view.y - TILE * 2, w: view.w + TILE * 4, h: view.h + TILE * 6 };

@@ -30,6 +30,10 @@
     </header>
 
     <aside id="roster"></aside>
+    <div id="zoomCtl">
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+      <button id="zoomOut" aria-label="Zoom out">&minus;</button>
+    </div>
     <aside id="agentPanel" hidden></aside>
     <section id="editor" hidden></section>
 
@@ -47,7 +51,7 @@
       <p>Every active Claude Code session (and each subagent it spawns) shows up as a tiny coworker who drives in, parks, and takes the elevator up. Busy agents sit at their desk and type; when Claude is waiting on you they take breaks, grab coffee, and chat.</p>
       <h3>Look around</h3>
       <ul>
-        <li><kbd>Drag</kbd> or <kbd>WASD</kbd> to pan, <kbd>Scroll</kbd> to zoom</li>
+        <li><kbd>Drag</kbd> or <kbd>WASD</kbd> to pan; <kbd>Scroll</kbd>, pinch or <kbd>+</kbd>/<kbd>&minus;</kbd> to zoom</li>
         <li>Click an agent to see what they're up to and change their look</li>
         <li><b>Clock</b> follows your local time (night falls outside), <b>Day</b> keeps it sunny</li>
       </ul>

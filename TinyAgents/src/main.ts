@@ -22,15 +22,12 @@ if (import.meta.env.DEV) {
 }
 const editor = new Editor(office, renderer, toast);
 const panel = new AgentPanel(() => (renderer.selected = null));
-const roster = new Roster(selectAgent);
-if (window.innerWidth < 700) {
-  document.getElementById('roster')!.classList.add('collapsed');
-}
+const roster = new Roster(selectAgent, matchMedia('(pointer: coarse)').matches || window.innerWidth < 700);
 
 renderer.resize();
 renderer.camera.x = (office.w * TILE) / 2;
 renderer.camera.y = (office.h * TILE) / 2;
-renderer.camera.zoom = window.innerWidth < 900 ? 1 : 2;
+renderer.camera.zoom = Math.max(1, Math.round((window.devicePixelRatio || 1) * (window.innerWidth < 900 ? 1 : 2)));
 window.addEventListener('resize', () => renderer.resize());
 
 // ---------- HUD ----------
@@ -97,6 +94,8 @@ timeBtn.addEventListener('click', () => {
 setClock(prefs.clock);
 director.clock = () => renderer.lighting.hour;
 document.getElementById('helpBtn')!.addEventListener('click', () => (help.hidden = !help.hidden));
+document.getElementById('zoomIn')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1));
+document.getElementById('zoomOut')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, -1));
 help.querySelector('.close')!.addEventListener('click', () => (help.hidden = true));
 
 function updateHud(): void {
@@ -156,9 +155,9 @@ function agentAt(sx: number, sy: number): Agent | undefined {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-/** Two-finger pinch on touch screens: steps through the integer zoom levels around the pinch centre. */
+/** Two-finger pinch on touch screens: zooms with the fingers (snapping to zoom levels) and pans with their midpoint. */
 const touches = new Map<number, [number, number]>();
-let pinch: { dist: number } | null = null;
+let pinch: { dist: number; zoom: number; x: number; y: number } | null = null;
 
 function pinchSpan(): [number, number, number] {
   const [a, b] = [...touches.values()];
@@ -170,7 +169,8 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') {
     touches.set(e.pointerId, [e.clientX, e.clientY]);
     if (touches.size === 2) {
-      pinch = { dist: pinchSpan()[0] };
+      const [dist, x, y] = pinchSpan();
+      pinch = { dist, zoom: renderer.camera.zoom, x, y };
       drag = null;
       return;
     }
@@ -187,11 +187,13 @@ canvas.addEventListener('pointermove', (e) => {
     touches.set(e.pointerId, [e.clientX, e.clientY]);
   }
   if (pinch && touches.size === 2) {
-    const [dist, cx, cy] = pinchSpan();
-    if (dist > pinch.dist * 1.35 || dist < pinch.dist / 1.35) {
-      renderer.zoomAt(cx, cy, dist > pinch.dist ? 1 : -1);
-      pinch.dist = dist;
-    }
+    const [dist, x, y] = pinchSpan();
+    panel.follow = false;
+    renderer.camera.x -= (x - pinch.x) / renderer.cssScale;
+    renderer.camera.y -= (y - pinch.y) / renderer.cssScale;
+    pinch.x = x;
+    pinch.y = y;
+    renderer.zoomTo(x, y, (pinch.zoom * dist) / pinch.dist);
     return;
   }
   if (editor.active) {
@@ -210,8 +212,8 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (drag.pan && drag.moved) {
     panel.follow = false;
-    renderer.camera.x = drag.camX - dx / renderer.camera.zoom;
-    renderer.camera.y = drag.camY - dy / renderer.camera.zoom;
+    renderer.camera.x = drag.camX - dx / renderer.cssScale;
+    renderer.camera.y = drag.camY - dy / renderer.cssScale;
   }
 });
 
@@ -249,11 +251,18 @@ canvas.addEventListener('pointerleave', () => {
   editor.leave();
 });
 
+/** Wheel distance per zoom level: one mouse notch, or a short trackpad pinch/scroll. */
+const WHEEL_STEP = 60;
+let wheel = 0;
 canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    renderer.zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1 : -1);
+    wheel += e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 33 : e.deltaY;
+    if (Math.abs(wheel) >= WHEEL_STEP) {
+      renderer.zoomAt(e.clientX, e.clientY, wheel < 0 ? 1 : -1);
+      wheel = 0;
+    }
   },
   { passive: false },
 );
@@ -318,7 +327,7 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => keys.clear());
 
 function panWithKeys(dt: number): void {
-  const speed = (900 / renderer.camera.zoom) * dt;
+  const speed = (900 / renderer.cssScale) * dt;
   let dx = 0;
   let dy = 0;
   if (keys.has('a') || keys.has('arrowleft')) {

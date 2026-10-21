@@ -29,9 +29,13 @@ export class Roster {
   private list: HTMLElement;
   private signature = '';
 
-  constructor(private onPick: (a: Agent) => void) {
+  constructor(
+    private onPick: (a: Agent) => void,
+    collapsed: boolean,
+  ) {
     this.root = document.getElementById('roster')!;
-    this.root.innerHTML = `<button class="ro-toggle" aria-expanded="true">Team <span class="ro-count">0</span></button><ul></ul>`;
+    this.root.innerHTML = `<button class="ro-toggle" aria-expanded="${!collapsed}">Team <span class="ro-count">0</span></button><ul></ul>`;
+    this.root.classList.toggle('collapsed', collapsed);
     this.list = this.root.querySelector('ul')!;
     const toggle = this.root.querySelector<HTMLButtonElement>('.ro-toggle')!;
     toggle.addEventListener('click', () => {

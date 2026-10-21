@@ -2,6 +2,7 @@
     "name": "TinyVoters",
     "short_name": "TinyVoters",
     "start_url": "index.html",
+    "scope": "index.html",
     "display": "fullscreen",
     "display_override": ["fullscreen", "standalone", "minimal-ui"],
     "background_color": "#231F20",
