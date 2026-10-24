@@ -1,8 +1,10 @@
 # Tiny Agents
 
-A cozy pixel-art office life-sim. The office is the 2nd floor of a small brick building in a business park. Its staff live a whole workday:
+A cozy pixel-art office life-sim. The office is a small brick building with real floors: the ground floor holds
+the entrance, the canteen and the services, the floor above the team offices and meeting rooms, and you can
+build more floors on top. Its staff live a whole workday:
 
-- They drive into the car park, walk in through the front door, and step out of the elevator or come up the stairs.
+- They drive into the car park, walk in through the front door, and take the lift or the stairs up to their floor.
 - They work at their desks, grab coffee and lunch, chat, play foosball, meet, and take breaks in the park.
 - In the evening they drive home.
 
@@ -29,15 +31,28 @@ Live at **https://tinyvoters.app/tinyagents/**. This folder lives inside the `Ti
 
 Details, privacy and limits: [docs/CLAUDE_INTEGRATION.md](docs/CLAUDE_INTEGRATION.md).
 
-Helpers: `npm run install-hooks -- <computer key>` connects a computer from the command line (`--remove` undoes
-it); `npm run simulate -- <computer key>` posts fake sessions for testing.
+**Connect** also has some optional extras:
+- **Visitor link**: a read-only `?visit=` link that shows only who's busy or waiting.
+- **Phone alerts**: web push when someone waits on you or finishes a long turn. Needs a one-time setup:
+  VAPID keys, `pg_net` and the `tiny-push` Edge Function.
+- **Away mode**: approve or deny permission requests from any paired device. Off by default, and needs the
+  approvals hook on each computer.
+
+The backend also keeps stats, careers, the day replay log and your customized people. The integration
+doc covers what's stored, how long it's kept, the setup steps and the approval security model.
+
+Helpers: `npm run install-hooks -- <computer key>` connects a computer from the command line (`--approvals` also
+adds the away-mode approvals hook, `--remove` undoes it); `npm run simulate -- <computer key>` posts fake sessions for testing.
 
 ## Controls
 
 - Drag or WASD to pan. Scroll, pinch, `+`/`-` or the on-screen buttons zoom, from the whole map down to close-ups. Click a person to see their needs and activity and change their look.
 - **Demo staff**: toggles the simulated colleagues.
 - **Clock / Day**: follows your local time (with day, dusk and night lighting) or keeps a sunny afternoon. `?time=21` forces an hour.
-- **Edit office** (`E`):
+- **Floors**: the elevator panel shows the building's floors (lit while someone there works, blinking while someone
+  waits for you). Pick one to look at it; **+ Add floor** builds a new storey on top with the shell of the floor
+  below (walls, lift and stairs), ready to furnish. An added top floor can be removed while nobody is on it.
+- **Edit office** (`E`): edits the floor on screen.
   - Place any asset.
   - Move it, rotate it (`R`), swap it for a look-alike, or delete it.
   - Paint floors and draw walls.
@@ -64,7 +79,7 @@ src/world/     office grid, layout, levels/hq.ts (default level), levels/sandbox
 src/render/    renderer, thin cutaway walls, floor chunks, day/night lighting, characters
 src/agents/    director, needs, personalities, social life, travel (cars, front door, lift, stairs), demo staff
 src/ui/        editor, roster, agent panel
-supabase/      tinyagents.sql: the whole backend (schema tinyagents + tiny_* functions)
-server/        hook installer, session simulator
+supabase/      tinyagents.sql: the whole backend (schema tinyagents + tiny_* functions); functions/tiny-push: web push
+server/        hook installer, away-mode approvals hook (tinyagents-approve.mjs), session simulator
 gallery.html   every asset at 1x/3x; also workPreview, livingPreview, outdoorPreview, tiles, characters pages
 ```

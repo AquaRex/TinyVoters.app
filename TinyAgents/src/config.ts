@@ -5,6 +5,8 @@ export const FOOT_Y = 26;
 export const WALL_LINE = 8;
 /** Height of a wall face in px. */
 export const WALL_FACE_H = 40;
+/** Height of one storey on screen: an upper floor is drawn this many px higher per level (one wall face and its cap). */
+export const STOREY_H = WALL_FACE_H + WALL_LINE;
 export const WALK_SPEED = 64;
 export const DRIVE_SPEED = 120;
 /**

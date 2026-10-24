@@ -79,6 +79,7 @@ for (const [id, name, ramp] of [
     group: 'chair.meeting',
     category: 'Meeting',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'up', 'left', 'right'],
     keywords: ['chair', 'seat', 'meeting', 'conference'],
     build: meetingChair(ramp),
@@ -124,6 +125,23 @@ function meetingTable(w: number, wood: Mat, legs: Mat, seed: number): Variant {
   return makeVariant({ w, h: 2, parts, shadows: [shadow(1, 44, W - 4, 18, 'rect')] });
 }
 
+/** The 8-seat table turned north-south (2 x 4), for rooms where the table points at the screen. */
+function meetingTableLong(wood: Mat, legs: Mat, seed: number): Variant {
+  const D = 128;
+  const parts = single(area(2, 4, 32), D - 2, (p) => {
+    for (const x of [8, 44]) {
+      box(p, x, D - 20, 12, 3, 18, legs, { edge: 'line' });
+    }
+    box(p, 1, -8, 62, D - 10, 3, wood, { round: 3 });
+    grain(p, 4, -5, 56, D - 16, wood.base, seed);
+    const m = mat(charcoal);
+    box(p, 26, 46, 12, 14, 1, m, { edge: 'soft' });
+    p.vline(28, 48, 10, mat(steel).base);
+    p.px(30, 52, screenGlow[0]);
+  });
+  return makeVariant({ w: 2, h: 4, parts, shadows: [shadow(1, D - 22, 60, 20, 'rect')] });
+}
+
 for (const [id, name, group, w, ramp, shift, seed] of [
   ['table.meeting.oak.4', 'Meeting table (oak, 4 seats)', 'table.meeting.small', 2, oak, 1, 5],
   ['table.meeting.oak.8', 'Meeting table (oak, 8 seats)', 'table.meeting.large', 4, oak, 1, 9],
@@ -135,9 +153,11 @@ for (const [id, name, group, w, ramp, shift, seed] of [
     group,
     category: 'Meeting',
     layer: 'object',
-    facings: ['down'],
+    placement: 'free',
+    facings: w === 4 ? ['down', 'left'] : ['down'],
     keywords: ['table', 'meeting', 'conference', 'boardroom'],
-    build: () => meetingTable(w, mat(ramp, shift), mat(ramp, shift + 1), seed),
+    build: (facing) =>
+      facing === 'left' ? meetingTableLong(mat(ramp, shift), mat(ramp, shift + 1), seed) : meetingTable(w, mat(ramp, shift), mat(ramp, shift + 1), seed),
   });
 }
 
@@ -150,6 +170,7 @@ defineAsset({
   group: 'surface.conference',
   category: 'Meeting',
   layer: 'surface',
+  placement: 'free',
   facings: ['down'],
   keywords: ['conference', 'speaker', 'phone', 'call'],
   build() {

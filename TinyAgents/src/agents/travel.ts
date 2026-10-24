@@ -1,10 +1,11 @@
 import { Dir, TILE } from '../config';
 import { variant } from '../art/registry';
+import { Activity } from '../art/types';
 import { Office, SpotRef } from '../world/office';
 import { Agent, Step } from './agent';
 import { Car, Waypoint } from './car';
 import { Tile } from './nav';
-import { Target, call, fadeAway, fadeInto, pause, walkTo } from './steps';
+import { Target, call, defer, fadeAway, fadeInto, pause, walkTo } from './steps';
 import type { Director } from './director';
 
 const OUTWARD: Record<Dir, Tile> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
@@ -107,35 +108,74 @@ export class Travel {
     const d = this.d;
     const anchor: Tile = d.deskTile(a) ?? [Math.floor(this.office.w / 2), Math.floor(this.office.h / 2)];
     if (this.useStairs(a)) {
-      const stairs = this.nearest(this.office.spotsFor('stairs'), anchor)!;
-      return [
-        call((x) => (x.hidden = true), true),
-        pause(quick ? 2 : between(d.rand, 10, 15), 'Taking the stairs', true),
-        fadeInto(stairs.x, stairs.y, stairs.px ?? 0, -20, stairs.facing, 0.8, 'Coming up the stairs'),
-        this.stepAside(stairs),
-      ];
+      return this.outOfStairs(this.nearest(this.office.spotsFor('stairs'), anchor)!, quick ? 2 : between(d.rand, 10, 15));
     }
     const spot = this.nearest(this.office.spotsFor('elevator'), anchor);
     if (spot) {
-      const lift = d.liftFor(spot);
-      return [
-        {
-          status: 'In the elevator',
-          locked: true,
-          begin(x) {
-            x.hidden = true;
-            x.alpha = 0;
-            lift.rideUp(x, d.time + (quick ? between(d.rand, 2, 4) : between(d.rand, 6, 10)));
-          },
-          tick: (x) => lift.exitOk.has(x) || !d.liftExists(lift),
-          end: (x) => lift.exitOk.delete(x),
-        },
-        fadeInto(spot.x, spot.y, spot.px ?? 0, -18, 'down', 0.45, 'Stepping out'),
-        this.stepAside(spot),
-      ];
+      return this.outOfLift(spot, quick ? between(d.rand, 2, 4) : between(d.rand, 6, 10));
     }
     const [x, y] = this.office.randomIndoorTile(d.rand);
     return [call((b) => (b.hidden = true), true), pause(quick ? 0.5 : 2, 'Arriving', true), fadeInto(x, y, 0, 0, 'down', 0.8, 'Arriving')];
+  }
+
+  /** Hidden in the stairwell for `seconds`, then up (or down) the stairs onto this floor and out of the way. */
+  private outOfStairs(stairs: SpotRef, seconds: number): Step[] {
+    return [
+      call((x) => (x.hidden = true), true),
+      pause(seconds, 'Taking the stairs', true),
+      fadeInto(stairs.x, stairs.y, stairs.px ?? 0, -20, stairs.facing, 0.8, 'Off the stairs'),
+      this.stepAside(stairs),
+    ];
+  }
+
+  /** Riding the elevator to this floor (the doors here open when it arrives in about `seconds`), then stepping out. */
+  private outOfLift(spot: SpotRef, seconds: number): Step[] {
+    const d = this.d;
+    const lift = d.liftFor(spot);
+    return [
+      {
+        status: 'In the elevator',
+        locked: true,
+        begin(x) {
+          x.hidden = true;
+          x.alpha = 0;
+          lift.rideUp(x, d.time + seconds);
+        },
+        tick: (x) => lift.exitOk.has(x) || !d.liftExists(lift),
+        end: (x) => lift.exitOk.delete(x),
+      },
+      fadeInto(spot.x, spot.y, spot.px ?? 0, -18, 'down', 0.45, 'Stepping out'),
+      this.stepAside(spot),
+    ];
+  }
+
+  /** Whether people can go between this floor and `to` (both have an elevator, or both have stairs). */
+  connects(to: Director): boolean {
+    return (['elevator', 'stairs'] as const).some((k) => this.office.spotsFor(k).length > 0 && to.office.spotsFor(k).length > 0);
+  }
+
+  /**
+   * The lift or stairs trip from this floor to `to`: walk to the elevator (wait, board) or the stairs here, change
+   * directors, ride or climb, and step out on `to` (the matching shaft there, so stacked lifts line up). `walk: false`
+   * starts hidden (already inside, e.g. just in through the front door). Null when the floors don't connect.
+   */
+  toFloor(a: Agent, to: Director, walk = true, from?: Tile): Step[] | null {
+    const d = this.d;
+    if (to === d) {
+      return [];
+    }
+    if (!this.connects(to)) {
+      return null;
+    }
+    const levels = Math.abs(to.level - d.level);
+    const both = (k: Activity) => this.office.spotsFor(k).length > 0 && to.office.spotsFor(k).length > 0;
+    const kind: Activity = both('stairs') && (!both('elevator') || (!a.isSub && d.rand() < a.traits.stairs / levels)) ? 'stairs' : 'elevator';
+    const start: Tile = from ?? (a.seated && a.seatExit ? a.seatExit : a.seg ?? [a.tx, a.ty]);
+    const here = this.nearest(this.office.spotsFor(kind), start)!;
+    const there = this.nearest(to.office.spotsFor(kind), [here.x, here.y])!;
+    const leave = walk ? (kind === 'stairs' ? this.intoStairs(here) : this.intoLift(here)) : [];
+    const arrive = kind === 'stairs' ? to.travel.outOfStairs(there, levels * between(d.rand, 6, 9)) : to.travel.outOfLift(there, 1.5 + levels * between(d.rand, 2, 3));
+    return [...leave, call((x) => d.handOver(x, to), true), ...arrive];
   }
 
   /** Clears the doorway after stepping out, so the next rider has room. */
@@ -165,96 +205,138 @@ export class Travel {
     const d = this.d;
     const here: Tile = [a.tx, a.ty];
     if (this.useStairs(a)) {
-      const stairs = this.nearest(this.office.spotsFor('stairs'), here)!;
-      const face = OPPOSITE[stairs.facing];
-      return [
-        walkTo(d, { x: stairs.x, y: stairs.y, ox: stairs.px ?? 0, oy: stairs.py ?? 0, face }, 'Heading downstairs'),
-        fadeAway(face, -20, 0.8, 'Taking the stairs'),
-        pause(vanish ? 0 : between(d.rand, 10, 15), 'Taking the stairs', true),
-      ];
+      return [...this.intoStairs(this.nearest(this.office.spotsFor('stairs'), here)!), pause(vanish ? 0 : between(d.rand, 10, 15), 'Taking the stairs', true)];
     }
     const spot = this.nearest(this.office.spotsFor('elevator'), here);
     if (spot) {
-      const lift = d.liftFor(spot);
-      let waitAt: Tile = [spot.x, spot.y];
-      let walk: Step | null = null;
-      const [doorX, doorY] = Office.footPoint(spot.x, spot.y);
-      return [
-        {
-          status: 'Walking to the elevator',
-          begin(x) {
-            const free = d.freeTilesNear(x, spot.x, spot.y, 3).filter(([tx, ty]) => !(tx === spot.x && ty === spot.y) && !(tx === spot.x && ty === spot.y + 1));
-            waitAt = free[0] ?? [spot.x, spot.y];
-            walk = walkTo(d, { x: waitAt[0], y: waitAt[1] });
-            const ok = walk.begin!(x) !== false;
-            d.hold(x, `t:${waitAt[0]},${waitAt[1]}`);
-            return ok;
-          },
-          tick: (x, dt) => walk!.tick(x, dt),
-          end: (x) => walk?.end?.(x),
-        },
-        {
-          status: 'Waiting for the elevator',
-          begin(x) {
-            x.face(doorX + (spot.px ?? 0), doorY - 20);
-            lift.callDown(x);
-          },
-          tick(x) {
-            x.face(doorX + (spot.px ?? 0), doorY - 20);
-            return lift.boardOk.has(x) || !d.liftExists(lift);
-          },
-          end(x) {
-            if (!lift.boardOk.delete(x)) {
-              lift.forget(x);
-            }
-          },
-        },
-        {
-          status: 'Stepping in',
-          locked: true,
-          begin(x) {
-            d.leavePlace(x);
-          },
-          tick: (x, dt) => x.glide(doorX + (spot.px ?? 0), doorY, x.speed, dt, true),
-        },
-        fadeAway('up', -18, 0.45, 'In the elevator'),
-        pause(vanish ? 0 : between(d.rand, 6, 10), 'In the elevator', true),
-      ];
+      return [...this.intoLift(spot), pause(vanish ? 0 : between(d.rand, 6, 10), 'In the elevator', true)];
     }
     return [fadeAway(a.dir, 0, 0.8, 'Leaving'), pause(vanish ? 0 : 2, 'Leaving', true)];
   }
 
+  /** Walks onto the stairs and out of sight. */
+  private intoStairs(stairs: SpotRef): Step[] {
+    const face = OPPOSITE[stairs.facing];
+    return [
+      walkTo(this.d, { x: stairs.x, y: stairs.y, ox: stairs.px ?? 0, oy: stairs.py ?? 0, face }, 'Heading for the stairs'),
+      fadeAway(face, -20, 0.8, 'Taking the stairs'),
+    ];
+  }
+
+  /** Walks to the elevator, waits beside the doors, boards when they open and disappears inside. */
+  private intoLift(spot: SpotRef): Step[] {
+    const d = this.d;
+    const lift = d.liftFor(spot);
+    let waitAt: Tile = [spot.x, spot.y];
+    let walk: Step | null = null;
+    const [doorX, doorY] = Office.footPoint(spot.x, spot.y);
+    return [
+      {
+        status: 'Walking to the elevator',
+        begin(x) {
+          const free = d.freeTilesNear(x, spot.x, spot.y, 3).filter(([tx, ty]) => !(tx === spot.x && ty === spot.y) && !(tx === spot.x && ty === spot.y + 1));
+          waitAt = free[0] ?? [spot.x, spot.y];
+          walk = walkTo(d, { x: waitAt[0], y: waitAt[1] });
+          const ok = walk.begin!(x) !== false;
+          d.hold(x, `t:${waitAt[0]},${waitAt[1]}`);
+          return ok;
+        },
+        tick: (x, dt) => walk!.tick(x, dt),
+        end: (x) => walk?.end?.(x),
+      },
+      {
+        status: 'Waiting for the elevator',
+        begin(x) {
+          x.face(doorX + (spot.px ?? 0), doorY - 20);
+          lift.callDown(x);
+        },
+        tick(x) {
+          x.face(doorX + (spot.px ?? 0), doorY - 20);
+          return lift.boardOk.has(x) || !d.liftExists(lift);
+        },
+        end(x) {
+          if (!lift.boardOk.delete(x)) {
+            lift.forget(x);
+          }
+        },
+      },
+      {
+        status: 'Stepping in',
+        locked: true,
+        begin(x) {
+          d.leavePlace(x);
+        },
+        tick: (x, dt) => x.glide(doorX + (spot.px ?? 0), doorY, x.speed, dt, true),
+      },
+      fadeAway('up', -18, 0.45, 'In the elevator'),
+    ];
+  }
+
   // ---------------------------------------------------------------- arrival and departure
 
-  /** How a person gets in: by car or on foot to the front door and up, or (no front door) straight upstairs. */
+  /**
+   * How a person gets in: by car or on foot to the front door, then (in a taller building) through the lobby and up
+   * the lift or stairs to their floor; in a one-storey building through the door and out of its own lift.
+   */
   arrival(a: Agent): Step[] {
     const d = this.d;
+    const home = a.homeFloor;
     const finish = call((x) => (x.arrived = true));
+    const hidden = call((x) => (x.hidden = true), true);
+    const appear = (): Step[] => [hidden, pause(0.5, 'Arriving', true), call((x) => d.handOver(x, home), true), ...home.travel.upstairs(a), finish];
     if (a.isSub) {
-      return [call((x) => (x.hidden = true), true), pause(between(d.rand, 0.5, 2), 'Coming up', true), ...this.upstairs(a, true), finish];
+      return [hidden, pause(between(d.rand, 0.5, 2), 'Coming up', true), ...this.upstairs(a, true), finish];
     }
-    const door = this.entrance();
+    const door = this.entrance() ?? (home !== d ? this.way() : undefined);
     if (!door) {
-      return [call((x) => (x.hidden = true), true), pause(0.5, 'Arriving', true), ...this.upstairs(a), finish];
+      return appear();
     }
     const outside = (d.rand() < a.traits.drives && this.byCar(a, door)) || this.onFoot(door);
     if (!outside) {
-      return [call((x) => (x.hidden = true), true), pause(0.5, 'Arriving', true), ...this.upstairs(a), finish];
+      return appear();
     }
-    return [...outside, ...this.goInside(door), ...this.upstairs(a), finish];
+    if (this.walkIn(door)) {
+      return [...outside, ...(this.toFloor(a, home, true, [door.x, door.y]) ?? []), finish];
+    }
+    if (home === d) {
+      return [...outside, ...this.goInside(door), ...this.upstairs(a), finish];
+    }
+    const inside = this.toFloor(a, home, false, [door.x, door.y]);
+    return inside ? [...outside, ...this.goInside(door), ...inside, finish] : appear();
   }
 
-  /** How a person leaves: down and out of the front door to their car or the map edge, or (no front door) just downstairs. */
+  /** The first elevator (or stairs) spot on this floor. */
+  private way(): SpotRef | undefined {
+    return [...this.office.spotsFor('elevator'), ...this.office.spotsFor('stairs')][0];
+  }
+
+  /** Whether the front door leads into a walkable lobby (a real ground floor), not a façade people vanish into. */
+  private walkIn(door: SpotRef): boolean {
+    const way = this.way();
+    return !!way && !!this.d.nav.path(door.x, door.y, way.x, way.y);
+  }
+
+  /**
+   * How a person leaves: from an upper floor down to the ground floor first; then out to their car or the map edge,
+   * through the lobby, or (a façade front door) down this floor's own lift and out of the door.
+   */
   departure(a: Agent): Step[] {
+    const d = this.d;
     const gone = call((x) => (x.gone = true), true);
-    if (a.isSub || !this.entrance()) {
+    const ground = d.staff.ground;
+    if (a.isSub) {
       return this.isOutdoor(a) ? [...this.home(a), gone] : [...this.downstairs(a, true), gone];
     }
-    if (this.isOutdoor(a)) {
+    if (d !== ground) {
+      const down = this.toFloor(a, ground);
+      return down ? [...down, defer((x) => ground.travel.departure(x))] : [...this.downstairs(a, true), gone];
+    }
+    const edge = this.edgeFor(a);
+    if (this.isOutdoor(a) || (edge && d.nav.path(a.tx, a.ty, edge[0], edge[1]))) {
       return [...this.home(a), gone];
     }
-    const door = this.entrance([a.tx, a.ty])!;
-    return [...this.downstairs(a), this.outOfDoor(door), ...this.home(a), gone];
+    const door = this.entrance([a.tx, a.ty]);
+    return door ? [...this.downstairs(a), this.outOfDoor(door), ...this.home(a), gone] : [...this.downstairs(a, true), gone];
   }
 
   /** From the street to the car (which drives off) or to the map edge. */

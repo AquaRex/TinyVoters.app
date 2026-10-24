@@ -26,7 +26,21 @@ export type Activity =
   | 'enter'
   | 'elevator'
   | 'stairs'
-  | 'parking';
+  | 'parking'
+  // where Claude's tools happen (work visibility)
+  | 'files'
+  | 'web'
+  | 'server'
+  | 'qa'
+  | 'shred'
+  | 'bell'
+  // canteen: staff behind a serving line, customers queueing in front of it
+  | 'serve'
+  | 'queue'
+  // dedicated rooms: IT help office, security office, janitor closet
+  | 'it'
+  | 'cctv'
+  | 'clean';
 
 export type Category =
   | 'Work'
@@ -102,7 +116,12 @@ export interface Variant {
    * 'door' -> openness 0..1 mapped across frames (closed first); 'loop' -> time-based at `fps`.
    */
   frames: Part[][];
-  anim?: { kind: 'door' | 'loop'; fps?: number };
+  anim?: {
+    kind: 'door' | 'loop';
+    fps?: number;
+    /** 'loop' only: offset the loop by the item's tile position, so neighbours (trees in the wind) don't move in lockstep. */
+    desync?: boolean;
+  };
   shadows?: Shadow[];
   lights?: Light[];
 }
@@ -119,6 +138,15 @@ export interface AssetDef {
   facings: Dir[];
   /** Builds the variant for a facing. Called lazily once per facing and cached by the registry. */
   build(facing: Dir): Variant;
+  /**
+   * How the asset is meant to stand (object and surface layers; wall-layer assets always hang on a wall):
+   * 'wall' backs onto a wall: shelves, sinks, toilets, counters, fridges, beds, whiteboards on legs. Its back edge is
+   *   flush with the footprint's back edge (the side opposite its facing), and the editor turns it to face away from
+   *   the nearest wall.
+   * 'corner' fits a room corner (plants, floor lamps, coat stands).
+   * 'free' stands in the open (tables, desk pods, sofas facing a TV, rugs). Default.
+   */
+  placement?: 'wall' | 'corner' | 'free';
   /** Agents can walk through when open (doors). The engine opens it when an agent is within 1 tile. */
   door?: boolean;
   /** Free-form search keywords for the editor. */

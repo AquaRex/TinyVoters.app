@@ -176,6 +176,7 @@ defineAsset({
   group: 'counter',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['counter', 'kitchen', 'cupboard', 'worktop'],
   build() {
@@ -192,6 +193,7 @@ defineAsset({
   group: 'counter',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['counter', 'kitchen', 'sink', 'tap'],
   build() {
@@ -259,6 +261,7 @@ defineAsset({
   group: 'counter',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['counter', 'kitchen', 'coffee', 'espresso', 'machine'],
   build() {
@@ -278,6 +281,7 @@ defineAsset({
   group: 'counter',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['counter', 'kitchen', 'microwave', 'snack'],
   build() {
@@ -363,6 +367,7 @@ for (const side of ['left', 'right'] as const) {
     group: 'counter.end',
     category: 'Kitchen',
     layer: 'object',
+    placement: 'wall',
     facings: ['down'],
     keywords: ['counter', 'kitchen', 'end', 'shelf'],
     build: () => endCap(side),
@@ -378,6 +383,7 @@ defineAsset({
   group: 'fridge',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['fridge', 'refrigerator', 'kitchen', 'snack'],
   build() {
@@ -419,6 +425,7 @@ defineAsset({
   group: 'water',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['water', 'cooler', 'drink', 'dispenser'],
   build() {
@@ -485,6 +492,7 @@ defineAsset({
   group: 'vending',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['vending', 'snack', 'machine', 'drinks'],
   build() {
@@ -545,6 +553,7 @@ defineAsset({
   group: 'table.dining',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['table', 'dining', 'lunch', 'eat'],
   build() {
@@ -580,6 +589,7 @@ defineAsset({
   group: 'table.bar',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['table', 'bar', 'high table', 'eat'],
   build() {
@@ -659,6 +669,7 @@ defineAsset({
   group: 'chair.dining',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'up', 'left', 'right'],
   keywords: ['chair', 'dining', 'seat'],
   build: diningChair,
@@ -688,6 +699,7 @@ defineAsset({
   group: 'stool',
   category: 'Kitchen',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'up', 'left', 'right'],
   keywords: ['stool', 'bar', 'seat'],
   build: barStool,

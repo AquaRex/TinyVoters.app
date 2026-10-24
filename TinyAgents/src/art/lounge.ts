@@ -174,6 +174,7 @@ for (const [id, name, n, u] of SOFAS) {
     group: `sofa.${n}`,
     category: 'Lounge',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'up', 'left', 'right'],
     keywords: ['sofa', 'couch', 'seat', 'lounge'],
     build: sofa(n, u),
@@ -248,6 +249,7 @@ for (const [id, name, u] of ARMCHAIRS) {
     group: 'armchair',
     category: 'Lounge',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'up', 'left', 'right'],
     keywords: ['armchair', 'chair', 'seat', 'lounge'],
     build: armchair(u),
@@ -285,6 +287,7 @@ for (const [id, name, ramp] of [['beanbag.mustard', 'Beanbag (mustard)', mustard
     group: 'beanbag',
     category: 'Lounge',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'up'],
     keywords: ['beanbag', 'seat', 'lounge', 'pouf'],
     build: beanbag(ramp),
@@ -328,6 +331,7 @@ defineAsset({
   group: 'table.coffee',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['table', 'coffee table', 'lounge'],
   build: coffeeTable(mat(oak), (p, v) => {
@@ -349,6 +353,7 @@ defineAsset({
   group: 'table.coffee',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['table', 'coffee table', 'lounge'],
   build: coffeeTable(mat(walnut), (p, v) => {
@@ -374,6 +379,7 @@ defineAsset({
   group: 'table.side',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['table', 'side table', 'end table', 'lounge'],
   build() {
@@ -404,6 +410,7 @@ defineAsset({
   group: 'table.round',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['table', 'cafe', 'round', 'bistro'],
   build() {
@@ -502,6 +509,7 @@ defineAsset({
   group: 'chair.cafe',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'up', 'left', 'right'],
   keywords: ['chair', 'cafe', 'bistro', 'seat'],
   build: cafeChair,
@@ -516,6 +524,7 @@ defineAsset({
   group: 'game',
   category: 'Lounge',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['foosball', 'game', 'table football', 'play'],
   build() {
@@ -583,6 +592,7 @@ defineAsset({
   group: 'bookshelf',
   category: 'Lounge',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['bookshelf', 'books', 'shelf', 'plants', 'read'],
   build() {

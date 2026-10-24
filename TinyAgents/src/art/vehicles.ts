@@ -314,6 +314,7 @@ function defineCar(id: string, name: string, m: Model, c: Paint, keywords: strin
     group: 'car',
     category: 'Vehicles',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'up', 'left', 'right'],
     keywords: ['car', 'vehicle', 'parking', ...keywords],
     build,

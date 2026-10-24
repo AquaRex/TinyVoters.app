@@ -1,4 +1,5 @@
 import { CLOTH_COLORS, LookBias } from './appearance';
+import { isTestRun } from './toolPlaces';
 
 const C = (...i: number[]) => i.map((n) => CLOTH_COLORS[n]);
 
@@ -206,7 +207,18 @@ export function personalityFor(p: Profession, rand: () => number): Personality {
 
 const pick = <T>(arr: readonly T[], rand: () => number): T => arr[Math.floor(rand() * arr.length)];
 
-export const GREETINGS = ['hi!', 'hey!', 'hello!', 'o/', 'morning!', 'yo!', 'hiya'];
+const HELLOS = ['hi!', 'hey!', 'hello!', 'o/', 'yo!', 'hiya'];
+
+/** Greetings that fit the hour: "morning!" only in the morning, "evening!" late in the day. */
+export function greetings(hour: number): string[] {
+  if (hour >= 5 && hour < 11) {
+    return [...HELLOS, 'morning!', 'morning!'];
+  }
+  if (hour >= 17 || hour < 5) {
+    return [...HELLOS, 'evening!'];
+  }
+  return HELLOS;
+}
 export const SHY_GREETINGS = ['hi', '...', 'oh, hi', '*nod*', 'hey'];
 export const REPLIES = ['haha', 'true', 'yeah!', 'mhm', 'right?', 'lol', 'same', 'oh nice', 'totally', 'really?', 'for sure', 'ha!', 'oh no'];
 
@@ -246,6 +258,9 @@ export function pickFrom<T>(arr: readonly T[], rand: () => number): T {
 
 /** A short bubble about the Claude tool an agent is running. */
 export function toolPhrase(tool?: string, detail?: string): string {
+  if ((tool === 'Bash' || tool === 'PowerShell') && isTestRun(detail)) {
+    return 'running tests...';
+  }
   if (detail && detail.length <= 18) {
     switch (tool) {
       case 'Edit':
@@ -259,6 +274,11 @@ export function toolPhrase(tool?: string, detail?: string): string {
         return `looking for ${detail}`;
       case 'WebFetch':
         return `on ${detail}`;
+      case 'WebSearch':
+        return `googling ${detail}`;
+      case 'Bash':
+      case 'PowerShell':
+        return `$ ${detail}`;
     }
   }
   switch (tool) {

@@ -1,20 +1,27 @@
 import { TILE, WALL_FACE_H, WALL_LINE } from '../config';
+import { glassTint } from '../art/kit';
 import { floor, wallStyle } from '../art/registry';
 import { Office } from '../world/office';
 import { hexToRgb, makeCanvas } from './pixel';
 
+/** Tint of a glass partition's top, drawn see-through. */
+const GLASS_CAP = hexToRgb(glassTint);
+
 /**
- * Thin cutaway walls. Each wall tile holds a WALL_LINE-thick line: hugging the outside of the building on
- * exterior walls, centred between rooms otherwise. The line's top (cap) is raised by WALL_FACE_H, and wherever
- * its south side is open floor a face hangs from the cap down to the floor line.
+ * Cutaway walls that fill their tile, so furniture in the next tile stands flush against them. Horizontal walls are a
+ * WALL_LINE-thick line on the tile's south edge whose face covers the whole tile; vertical runs are a full tile wide.
+ * The cap is raised by WALL_FACE_H, and wherever the south side is open floor a face hangs from the cap down to the
+ * floor line.
  */
 
 export interface WallGeom {
   x: number;
   y: number;
-  /** Line position inside the tile. */
+  /** Line position inside the tile: vertical runs fill the tile's width, horizontal lines hug its south edge. */
   ax: number;
   ay: number;
+  /** Width of the vertical run (TILE), 0 for a purely horizontal wall. */
+  vw: number;
   /** Floor-plane mask of the line, TILE x TILE. */
   mask: Uint8Array;
   /** Per column: row just below the lowest line pixel (0 = no line in this column). */
@@ -41,54 +48,22 @@ export interface WallSprite {
   cap: HTMLCanvasElement;
 }
 
-function isInside(office: Office, x: number, y: number): boolean {
-  return !!office.floorAt(x, y) && !office.wallAt(x, y) && !office.isOutdoor(x, y);
-}
-
 export function wallGeom(office: Office, x: number, y: number): WallGeom {
-  const ins = (dx: number, dy: number) => isInside(office, x + dx, y + dy);
-  const wall = (dx: number, dy: number) => !!office.wallAt(x + dx, y + dy);
-  const inE = ins(1, 0) || ins(1, -1) || ins(1, 1);
-  const inW = ins(-1, 0) || ins(-1, -1) || ins(-1, 1);
-  const inN = ins(0, -1) || ins(-1, -1) || ins(1, -1);
-  const inS = ins(0, 1) || ins(-1, 1) || ins(1, 1);
-  const mid = (TILE - WALL_LINE) / 2;
-  const ax = inE && !inW ? 0 : inW && !inE ? TILE - WALL_LINE : mid;
-  const ay = inS && !inN ? 0 : inN && !inS ? TILE - WALL_LINE : mid;
-  const n = wall(0, -1);
-  const s = wall(0, 1);
-  const w = wall(-1, 0);
-  const e = wall(1, 0);
-  const hasH = w || e;
+  const n = !!office.wallAt(x, y - 1);
+  const s = !!office.wallAt(x, y + 1);
+  const w = !!office.wallAt(x - 1, y);
+  const e = !!office.wallAt(x + 1, y);
   const hasV = n || s;
+  const ay = TILE - WALL_LINE;
+  const vw = hasV ? TILE : 0;
 
   const mask = new Uint8Array(TILE * TILE);
-  const rect = (rx: number, ry: number, rw: number, rh: number) => {
-    for (let j = ry; j < ry + rh; j++) {
-      mask.fill(1, j * TILE + rx, j * TILE + rx + rw);
-    }
-  };
-  if (!hasV) {
-    rect(0, ay, TILE, WALL_LINE);
-  } else if (!hasH) {
-    rect(ax, 0, WALL_LINE, TILE);
-  } else {
-    rect(ax, ay, WALL_LINE, WALL_LINE);
-    if (n) {
-      rect(ax, 0, WALL_LINE, ay);
-    }
-    if (s) {
-      rect(ax, ay + WALL_LINE, WALL_LINE, TILE - ay - WALL_LINE);
-    }
-    if (w) {
-      rect(0, ay, ax, WALL_LINE);
-    }
-    if (e) {
-      rect(ax + WALL_LINE, ay, TILE - ax - WALL_LINE, WALL_LINE);
-    }
-  }
+  const top = hasV && n ? 0 : ay;
+  const bottom = hasV && s ? TILE : ay + WALL_LINE;
+  mask.fill(1, top * TILE, bottom * TILE);
 
-  const southOpen = !s && !!office.floorAt(x, y + 1);
+  // open floor south of the line, or nothing (an upper floor's outside: its façade shows over the street below)
+  const southOpen = !s && (!!office.floorAt(x, y + 1) || !office.layout.floor[(y + 1) * office.w + x]);
   const bottoms: number[] = [];
   const face: boolean[] = [];
   for (let i = 0; i < TILE; i++) {
@@ -101,8 +76,7 @@ export function wallGeom(office: Office, x: number, y: number): WallGeom {
     bottoms.push(bottom);
     face.push(bottom > 0 && (bottom < TILE || southOpen));
   }
-  const faceBottom = hasV && !hasH ? TILE : ay + WALL_LINE;
-  return { x, y, ax, ay, mask, bottoms, face, key: y * TILE + Math.max(...bottoms), faceBottom, n, s, w, e };
+  return { x, y, ax: 0, ay, vw, mask, bottoms, face, key: y * TILE + Math.max(...bottoms), faceBottom: TILE, n, s, w, e };
 }
 
 /**
@@ -117,7 +91,7 @@ function columnStyle(office: Office, g: WallGeom, i: number): string {
   if (i < g.ax && g.w) {
     return office.wallAt(g.x - 1, g.y)!;
   }
-  if (i >= g.ax + WALL_LINE && g.e) {
+  if (i >= g.ax + g.vw && g.e) {
     return office.wallAt(g.x + 1, g.y)!;
   }
   return own;
@@ -168,6 +142,9 @@ export function buildWallSprite(office: Office, g: WallGeom, geomAt: (x: number,
   const continues = (i: number, j: number) => (i < 0 && g.w) || (i >= TILE && g.e) || (j < 0 && g.n) || (j >= TILE && g.s);
   const open = (i: number, j: number) => (i < 0 || j < 0 || i >= TILE || j >= TILE ? !continues(i, j) : !at(i, j));
   const colors = new Map<string, [number, number, number][]>();
+  const indoor = (x: number, y: number) => !!office.floorAt(x, y) && !office.wallAt(x, y) && !office.isOutdoor(x, y);
+  // only glass between two indoor spaces is see-through from above; an outside window shows its frame
+  const partition = g.vw > 0 ? indoor(g.x - 1, g.y) && indoor(g.x + 1, g.y) : indoor(g.x, g.y - 1) && indoor(g.x, g.y + 1);
   const img = cctx.createImageData(TILE, TILE);
   for (let j = 0; j < TILE; j++) {
     for (let i = 0; i < TILE; i++) {
@@ -181,12 +158,15 @@ export function buildWallSprite(office: Office, g: WallGeom, geomAt: (x: number,
         colors.set(style.id, c3);
       }
       const boundary = open(i - 1, j) || open(i + 1, j) || open(i, j - 1) || open(i, j + 1);
-      const c = boundary ? c3[0] : open(i, j - 2) ? c3[1] : c3[2];
+      const glassy = style.kind === 'glass';
+      const mullion = glassy && g.vw > 0 && (i === TILE / 2 - 1 || i === TILE / 2);
+      const pane = glassy && partition && !boundary && !mullion;
+      const c = boundary || mullion ? c3[0] : pane ? GLASS_CAP : open(i, j - 2) ? c3[1] : c3[2];
       const k = (j * TILE + i) * 4;
       img.data[k] = c[0];
       img.data[k + 1] = c[1];
       img.data[k + 2] = c[2];
-      img.data[k + 3] = 255;
+      img.data[k + 3] = pane ? 110 : 255;
     }
   }
   cctx.putImageData(img, 0, 0);
@@ -207,7 +187,7 @@ export function underWallRegions(office: Office, g: WallGeom): [number, number, 
   const S = side(0, 1);
   const hasH = g.w || g.e;
   const hasV = g.n || g.s;
-  const sx = g.ax + WALL_LINE / 2;
+  const sx = TILE / 2;
   const sy = g.ay + WALL_LINE / 2;
   const regions: [number, number, number, number, string | null][] = [];
   if (hasV && !hasH) {

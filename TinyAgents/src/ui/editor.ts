@@ -4,7 +4,7 @@ import { AssetDef, Category, Dir } from '../art/types';
 import { assetSprite, floorSwatch, thumbnail } from '../render/preview';
 import { Renderer } from '../render/renderer';
 import { wallSwatch } from '../render/walls';
-import { defaultLayout, PlacedItem } from '../world/layout';
+import { PlacedItem } from '../world/layout';
 import { Office } from '../world/office';
 
 type Tool = 'select' | 'place' | 'floor' | 'wall';
@@ -22,6 +22,9 @@ export class Editor {
   private tool: Tool = 'select';
   private placeType: string | null = null;
   private placeDir: Dir = 'down';
+  /** Set by R: the piece keeps that facing instead of turning its back to a wall. */
+  private placeTurned = false;
+  private turned = new Set<number>();
   private floorType: string | null | undefined;
   private wallStyle: string | null = null;
   private selected: PlacedItem | null = null;
@@ -34,9 +37,28 @@ export class Editor {
   private shown = PAGE;
   private root: HTMLElement;
 
-  constructor(private office: Office, private renderer: Renderer, private notify: (msg: string) => void) {
+  constructor(
+    /** the floor being edited: always the visible one */
+    private officeOf: () => Office,
+    private renderer: Renderer,
+    private notify: (msg: string) => void,
+    private resetBuilding: () => void,
+  ) {
     this.root = document.getElementById('editor')!;
     this.buildUI();
+  }
+
+  private edited: Office | null = null;
+
+  /** The visible floor's office; switching floors drops the selection (it belongs to the other floor). */
+  private get office(): Office {
+    const office = this.officeOf();
+    if (office !== this.edited) {
+      this.edited = office;
+      this.selected = null;
+      this.moving = null;
+    }
+    return office;
   }
 
   setActive(on: boolean): void {
@@ -69,9 +91,9 @@ export class Editor {
       b.addEventListener('click', () => this.setTool(b.dataset.tool as Tool)),
     );
     this.root.querySelector('[data-act="reset"]')!.addEventListener('click', () => {
-      if (confirm('Reset the office to the default layout? Your edits will be lost.')) {
+      if (confirm('Reset the whole building to the default layout? Your edits and added floors will be lost.')) {
         this.selected = null;
-        this.office.replaceLayout(defaultLayout());
+        this.resetBuilding();
         this.renderBody();
       }
     });
@@ -235,6 +257,7 @@ export class Editor {
       const btn = this.assetButton(d, d.facings[0], d.id === this.placeType, () => {
         this.placeType = d.id;
         this.placeDir = d.facings[0];
+        this.placeTurned = false;
         grid.querySelectorAll('.on').forEach((e) => e.classList.remove('on'));
         btn.classList.add('on');
       });
@@ -322,8 +345,8 @@ export class Editor {
           break;
         }
         const def = asset(this.placeType)!;
-        const [px, py] = this.anchorFor(this.placeType, this.placeDir, tx, ty, -1);
-        if (!this.office.place(this.placeType, px, py, this.placeDir)) {
+        const [dir, px, py] = this.placeTarget(this.placeType, tx, ty);
+        if (!this.office.place(this.placeType, px, py, dir)) {
           this.notify(def.layer === 'wall' ? 'Wall decor goes on a wall facing a room' : def.layer === 'surface' ? 'Place it on a desk, table or counter' : "Can't place that here");
         }
         break;
@@ -374,6 +397,42 @@ export class Editor {
     return [x, y];
   }
 
+  /** Facing and footprint for placing at the cursor: 'wall' pieces turn their back to a wall they touch. */
+  private placeTarget(type: string, tx: number, ty: number): [Dir, number, number] {
+    const dir = this.placeTurned ? this.placeDir : this.wallFacing(type, this.placeDir, -1, (f) => this.anchorFor(type, f, tx, ty, -1));
+    return [dir, ...this.anchorFor(type, dir, tx, ty, -1)];
+  }
+
+  private moveFacing(item: PlacedItem, x: number, y: number): Dir {
+    return this.turned.has(item.uid) ? item.dir : this.wallFacing(item.type, item.dir, item.uid, () => [x, y]);
+  }
+
+  /**
+   * For a 'wall' piece: `dir` when its back is already to a wall or nothing touches one, otherwise the first facing
+   * (that fits) whose back side touches a wall.
+   */
+  private wallFacing(type: string, dir: Dir, ignoreUid: number, at: (f: Dir) => [number, number]): Dir {
+    const def = asset(type)!;
+    if (def.placement !== 'wall') {
+      return dir;
+    }
+    const backed = def.facings.filter((f) => {
+      const [x, y] = at(f);
+      return this.wallBehind(type, f, x, y) && this.office.canPlace(type, x, y, f, ignoreUid);
+    });
+    return backed.length && !backed.includes(dir) ? backed[0] : dir;
+  }
+
+  /** Whether any tile along the footprint's back side (opposite its facing) is a wall. */
+  private wallBehind(type: string, f: Dir, x: number, y: number): boolean {
+    const v = variant(type, f)!;
+    const tiles: [number, number][] =
+      f === 'down' || f === 'up'
+        ? Array.from({ length: v.w }, (_, i) => [x + i, f === 'down' ? y - 1 : y + v.h])
+        : Array.from({ length: v.h }, (_, j) => [f === 'left' ? x + v.w : x - 1, y + j]);
+    return tiles.some(([tx, ty]) => !!this.office.wallAt(tx, ty));
+  }
+
   pointerMove(tx: number, ty: number): void {
     const changed = !this.hover || this.hover[0] !== tx || this.hover[1] !== ty;
     this.hover = [tx, ty];
@@ -393,8 +452,13 @@ export class Editor {
       const { item, grabDx, grabDy } = this.moving;
       const nx = this.hover[0] - grabDx;
       const ny = this.hover[1] - grabDy;
-      if ((nx !== item.x || ny !== item.y) && !this.office.move(item, nx, ny)) {
-        this.notify("Can't move it there");
+      if (nx !== item.x || ny !== item.y) {
+        const was = item.dir;
+        item.dir = this.moveFacing(item, nx, ny);
+        if (!this.office.move(item, nx, ny)) {
+          item.dir = was;
+          this.notify("Can't move it there");
+        }
       }
     }
     this.moving = null;
@@ -421,6 +485,7 @@ export class Editor {
         this.notify('This piece only faces one way');
       }
       this.placeDir = nextFacing(def, this.placeDir);
+      this.placeTurned = true;
       return;
     }
     const item = this.selected;
@@ -436,6 +501,7 @@ export class Editor {
     for (let k = 1; k < def.facings.length; k++) {
       dir = nextFacing(def, dir);
       if (this.office.retype(item, item.type, dir)) {
+        this.turned.add(item.uid);
         this.renderBody();
         return;
       }
@@ -470,10 +536,11 @@ export class Editor {
     const [hx, hy] = this.hover;
     if (this.moving) {
       const { item, grabDx, grabDy } = this.moving;
-      this.ghost(ctx, item.type, item.dir, hx - grabDx, hy - grabDy, item.uid);
+      const [x, y] = [hx - grabDx, hy - grabDy];
+      this.ghost(ctx, item.type, this.moveFacing(item, x, y), x, y, item.uid);
     } else if (this.tool === 'place' && this.placeType) {
-      const [px, py] = this.anchorFor(this.placeType, this.placeDir, hx, hy, -1);
-      this.ghost(ctx, this.placeType, this.placeDir, px, py, -1);
+      const [dir, px, py] = this.placeTarget(this.placeType, hx, hy);
+      this.ghost(ctx, this.placeType, dir, px, py, -1);
     } else {
       ctx.strokeStyle = this.tool === 'wall' ? '#c9a7ff' : this.tool === 'floor' ? '#7fdcef' : 'rgba(255,255,255,0.5)';
       ctx.lineWidth = 2;

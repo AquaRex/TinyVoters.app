@@ -99,6 +99,7 @@ defineAsset({
   group: 'toilet',
   category: 'Restroom',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['toilet', 'stall', 'wc', 'restroom', 'bathroom'],
   build() {
@@ -130,6 +131,7 @@ defineAsset({
   group: 'sink',
   category: 'Restroom',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['sink', 'basin', 'mirror', 'wash', 'restroom', 'bathroom'],
   build() {
@@ -146,7 +148,8 @@ defineAsset({
       p.line(12, -38, 17, -43, cream[6]);
       p.line(19, -34, 21, -36, cream[6]);
       p.px(16, -49, brass.hi);
-      // stone countertop with a vessel basin, tap and soap
+      // upstand against the wall, then the stone countertop with a vessel basin, tap and soap
+      box(p, 2, -12, 28, 2, 9, porcelain, { round: 1 });
       box(p, 2, -4, 28, 11, 3, porcelain, { round: 1 });
       p.ellipse(8, -6, 16, 9, porcelain.line);
       p.ellipse(9, -6, 14, 8, porcelain.hi);

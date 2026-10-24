@@ -1,7 +1,7 @@
 import { defineAsset } from './registry';
-import { Dir, Light, Variant } from './types';
+import { Dir, Light, Part, Variant } from './types';
 import {
-  Mat, Pen, Ramp, area, blue, box, charcoal, cream, cylinder, dirt, grass, hash2, layered, leg, lightWarm, makeVariant,
+  Mat, Pen, Ramp, area, blue, box, charcoal, cream, cylinder, dirt, grass, hash2, layered, leg, lightWarm, makeCanvas, makeVariant,
   markingWhite, mat, mix, mustard, navy, oak, paintShape, paving, plant, red, rng, sage, seat, shadow, single,
   stand, steel, terracotta, walnut, yellow, asphalt,
 } from './kit';
@@ -272,6 +272,44 @@ function stroke(p: Pen, x0: number, y0: number, x1: number, y1: number, w: numbe
 }
 
 // ---------------------------------------------------------------------------------------------------------
+// Wind: foliage leans downwind by whole pixels. A pose shears a part's rows, from 0 at its bottom row to the full
+// lean at its top, so roots, trunks and shadows stay put. The gust loop reuses a handful of poses, and the renderer
+// offsets it per tile (`desync`) so the park never sways in lockstep.
+
+/** Top-row lean per frame at amp 1: a slow breeze, a back-swing, and one stronger gust per ~11 s loop. */
+const GUSTS = [0, 0, 0.5, 1, 1, 1, 0.5, 0, 0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2, 2, 1.5, 1, 1, 0.5, 0, 0, 0, -0.5, 0];
+const WIND: Variant['anim'] = { kind: 'loop', fps: 3, desync: true };
+
+/** `part` with its top row shifted `px` px (fractional: lower rows round to less), bottom row fixed. */
+export function lean(part: Part, px: number): Part {
+  const src = part.canvas;
+  const h = src.height;
+  const shift = (row: number) => Math.round((px * (h - 1 - row)) / Math.max(1, h - 1));
+  if (!shift(0)) {
+    return part;
+  }
+  const lo = Math.min(0, shift(0));
+  const [c, ctx] = makeCanvas(src.width + Math.abs(shift(0)), h);
+  for (let row = 0; row < h; row++) {
+    ctx.drawImage(src, 0, row, src.width, 1, shift(row) - lo, row, src.width, 1);
+  }
+  return { ...part, canvas: c, x: part.x + lo };
+}
+
+/** The gust loop: `sway` parts lean by amp × gust px, `still` parts (trunks, curbs) stay. */
+function windFrames(still: Part[], sway: Part[], amp: number): Part[][] {
+  const poses = new Map<number, Part[]>();
+  return GUSTS.map((g) => {
+    let f = poses.get(g);
+    if (!f) {
+      f = [...still, ...sway.map((p) => lean(p, g * amp))].sort((a, b) => a.z - b.z);
+      poses.set(g, f);
+    }
+    return f;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------------
 // Trees
 
 /** Tapered trunk with root flare, lit from the left. Base centre (cx, base), top y `top`. */
@@ -347,7 +385,8 @@ function treeVariant(s: TreeSpec): Variant {
   return makeVariant({
     w: 1,
     h: 1,
-    parts,
+    frames: windFrames(parts.filter((p) => p.z === Z_TRUNK), parts.filter((p) => p.z === Z_CANOPY), 1),
+    anim: WIND,
     shadows: [shadow(sx, sy, sw, sh), shadow(7, 23, 20, 8)],
   });
 }
@@ -365,6 +404,7 @@ defineAsset({
   group: 'tree',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['tree', 'oak', 'park', 'green'],
   build() {
@@ -400,6 +440,7 @@ defineAsset({
   group: 'tree',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['tree', 'oak', 'park', 'green', 'wide'],
   build() {
@@ -438,6 +479,7 @@ defineAsset({
   group: 'tree',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['tree', 'birch', 'park', 'light'],
   build() {
@@ -475,6 +517,7 @@ defineAsset({
   group: 'tree',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['tree', 'maple', 'autumn', 'orange', 'park'],
   build() {
@@ -509,6 +552,7 @@ defineAsset({
   group: 'tree',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['tree', 'pine', 'conifer', 'evergreen'],
   build() {
@@ -529,7 +573,13 @@ defineAsset({
         leafMass(c, lobes, ramp, { cell: 4, seed: 70 + i, lift: 0.02 + i * 0.03, sparkle: 0.3, depth: 0.8 });
       });
     });
-    return makeVariant({ w: 1, h: 1, parts, shadows: [shadow(-8, 8, 50, 24), shadow(7, 23, 20, 8)] });
+    return makeVariant({
+      w: 1,
+      h: 1,
+      frames: windFrames(parts.filter((p) => p.z === Z_TRUNK), parts.filter((p) => p.z === Z_CANOPY), 0.7),
+      anim: WIND,
+      shadows: [shadow(-8, 8, 50, 24), shadow(7, 23, 20, 8)],
+    });
   },
 });
 
@@ -541,7 +591,7 @@ function bush(lobes: Lobe[], ramp: Ramp, seed: number, extra?: (p: Pen, inside: 
     const inside = leafMass(p, lobes, ramp, { cell: 4, seed, sparkle: 0.45, depth: 0.55 });
     extra?.(p, inside);
   });
-  return makeVariant({ w: 1, h: 1, parts, shadows: [shadow(1, 20, 30, 11)] });
+  return makeVariant({ w: 1, h: 1, frames: windFrames([], parts, 0.6), anim: WIND, shadows: [shadow(1, 20, 30, 11)] });
 }
 
 /** A small round blossom: 3x3 plus shape with a lit top-left petal and a darker lower petal. */
@@ -559,6 +609,7 @@ defineAsset({
   group: 'bush',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bush', 'shrub', 'green'],
   build() {
@@ -577,6 +628,7 @@ defineAsset({
   group: 'bush',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bush', 'shrub', 'boxwood', 'green'],
   build() {
@@ -592,6 +644,7 @@ defineAsset({
   group: 'bush',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bush', 'flower', 'rose', 'pink'],
   build() {
@@ -620,6 +673,20 @@ defineAsset({
 
 const HEDGE_H = 18;
 
+/** A loose shoot poking out of the clipped surface (base at x, y); the wind leans its leafy tip. */
+function sprig(p: Pen, x: number, y: number): void {
+  p.vline(x, y - 1, 2, plant[2]);
+  p.hline(x - 1, y - 3, 3, plant[4]);
+  p.px(x, y - 4, plant[4]);
+  p.px(x - 1, y - 3, plant[5]);
+  p.px(x, y - 2, plant[3]);
+}
+
+/** One part per shoot, so each leans over its own height. */
+function sprigs(at: [number, number][], z: number): Part[] {
+  return at.flatMap(([x, y]) => single(area(1, 1, 40, 4), z, (p) => sprig(p, x, y)));
+}
+
 function hedgeTone(ramp: Ramp, v: number): string {
   const n = ramp.length;
   return ramp[Math.max(1, Math.min(n - 2, 1 + Math.floor(((v + 0.6) / 1.25) * (n - 2))))];
@@ -631,6 +698,7 @@ defineAsset({
   group: 'hedge',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['hedge', 'bush', 'border', 'green'],
   build(facing: Dir) {
@@ -668,7 +736,7 @@ defineAsset({
           return yy === lipY ? hedgeTone(ramp, v - 0.25) : hedgeTone(ramp, v);
         });
       });
-      return makeVariant({ w: 1, h: 1, parts, shadows: [{ shape: 'rect', x: 0, y: 24, w: 32, h: 8 }] });
+      return makeVariant({ w: 1, h: 1, frames: windFrames(parts, sprigs([[8, -11], [23, -10], [15, -3]], 30.5), 0.6), anim: WIND, shadows: [{ shape: 'rect', x: 0, y: 24, w: 32, h: 8 }] });
     }
     // column: ground band x 5..27 over the whole tile; top face y -18..14, front face y 14..32
     const x0 = 5;
@@ -700,7 +768,13 @@ defineAsset({
         return wy === lipY ? hedgeTone(ramp, v - 0.2) : hedgeTone(ramp, v);
       });
     });
-    return makeVariant({ w: 1, h: 1, parts, shadows: [{ shape: 'rect', x: x1 - 2, y: 0, w: 7, h: 32 }, { shape: 'rect', x: x0 + 2, y: 26, w: x1 - x0, h: 6 }] });
+    return makeVariant({
+      w: 1,
+      h: 1,
+      frames: windFrames(parts, sprigs([[11, -11], [20, 1]], 32.5), 0.6),
+      anim: WIND,
+      shadows: [{ shape: 'rect', x: x1 - 2, y: 0, w: 7, h: 32 }, { shape: 'rect', x: x0 + 2, y: 26, w: x1 - x0, h: 6 }],
+    });
   },
 });
 
@@ -716,10 +790,12 @@ function flowerbed(id: string, name: string, flowers: { petals: readonly string[
     group: 'flowerbed',
     category: 'Outdoor',
     layer: 'object',
+    placement: 'free',
     facings: ['down'],
     keywords: ['flower', 'bed', 'planter', 'garden'],
     build() {
-      const parts = single(area(2, 1, 30, 4), 28, (p) => {
+      const parts = layered(area(2, 1, 30, 4), (L) => {
+        const p = L(26);
         box(p, 1, 6, 62, 18, 6, stone, { round: 2 });
         p.rect(4, 8, 56, 13, mat(dirt).deep);
         p.hline(4, 8, 56, dirt[0]);
@@ -728,7 +804,8 @@ function flowerbed(id: string, name: string, flowers: { petals: readonly string[
           lobes.push({ x: 8 + i * 9.6, y: 10, r: 7, ry: 6 });
           lobes.push({ x: 12 + i * 8.4, y: 16, r: 7, ry: 6 });
         }
-        const inside = leafMass(p, lobes, plant, { cell: 4, seed, sparkle: 0.25, depth: 0.45, lift: 0.05 });
+        const bloom = L(27);
+        const inside = leafMass(bloom, lobes, plant, { cell: 4, seed, sparkle: 0.25, depth: 0.45, lift: 0.05 });
         const r = rng(seed);
         let placed = 0;
         for (let i = 0; i < 400 && placed < 26; i++) {
@@ -738,17 +815,19 @@ function flowerbed(id: string, name: string, flowers: { petals: readonly string[
             continue;
           }
           const f = flowers[placed % flowers.length];
-          blossom(p, x, y, f.petals, f.centre);
+          blossom(bloom, x, y, f.petals, f.centre);
           placed++;
         }
         // front curb drawn last so foliage tucks in behind it
-        box(p, 1, 22, 62, 2, 6, stone, { round: 1 });
-        p.hline(3, 22, 58, stone.hi);
+        const front = L(28);
+        box(front, 1, 22, 62, 2, 6, stone, { round: 1 });
+        front.hline(3, 22, 58, stone.hi);
         for (const sx of [17, 33, 49]) {
-          p.vline(sx, 24, 4, stone.dark);
+          front.vline(sx, 24, 4, stone.dark);
         }
       });
-      return makeVariant({ w: 2, h: 1, parts, shadows: [shadow(1, 22, 62, 9, 'rect')] });
+      const frames = windFrames(parts.filter((p) => p.z !== 27), parts.filter((p) => p.z === 27), 0.5);
+      return makeVariant({ w: 2, h: 1, frames, anim: WIND, shadows: [shadow(1, 22, 62, 9, 'rect')] });
     },
   });
 }
@@ -795,6 +874,7 @@ defineAsset({
   group: 'bench',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'up'],
   keywords: ['bench', 'seat', 'park'],
   build(facing: Dir) {
@@ -853,6 +933,7 @@ defineAsset({
   group: 'table.picnic',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['picnic', 'table', 'eat', 'lunch', 'park'],
   build() {
@@ -911,6 +992,7 @@ defineAsset({
   group: 'lamp.street',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['lamp', 'light', 'street', 'night'],
   build() {
@@ -954,6 +1036,7 @@ defineAsset({
   group: 'bin.street',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bin', 'trash', 'litter'],
   build() {
@@ -1015,6 +1098,7 @@ defineAsset({
   group: 'bikerack',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bike', 'bicycle', 'rack', 'cycle'],
   build() {
@@ -1047,6 +1131,7 @@ defineAsset({
   group: 'bollard',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['bollard', 'post', 'street'],
   build() {
@@ -1133,6 +1218,7 @@ defineAsset({
   group: 'sign',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['sign', 'monument', 'tiny agents', 'entrance'],
   build() {
@@ -1178,6 +1264,7 @@ defineAsset({
   group: 'sign.post',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['sign', 'post', 'parking', 'direction', 'entrance'],
   build() {
@@ -1212,6 +1299,7 @@ defineAsset({
   group: 'fence',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['fence', 'wood', 'border', 'rail'],
   build(facing: Dir) {
@@ -1264,12 +1352,43 @@ function blade(p: Pen, x: number, y: number, h: number, lean: number, base: stri
   p.px(x + lean, y - h + 1, tip);
 }
 
+const lawnPoses = new Map<string, Part>();
+
+/** Lawn blades for the wind overlay (features/wind.ts) in a grass patch's tones (shade 0..2); base at (0, 0), `pose` 0..2 leans the tips. */
+export function lawnBlades(shade: number, pose: number): Part {
+  const key = `${shade}|${pose}`;
+  let part = lawnPoses.get(key);
+  if (!part) {
+    if (pose) {
+      part = lean(lawnBlades(shade, 0), pose);
+    } else {
+      const dark = shade === 0 ? grass[1] : mix(grass[1], grass[2], 0.6);
+      const mid = shade === 0 ? mix(grass[2], grass[3], 0.5) : grass[3];
+      const light = shade === 2 ? grass[5] : mix(grass[4], grass[5], 0.4);
+      part = single({ x: -3, y: -5, w: 7, h: 6 }, 0, (p) => {
+        p.vline(0, -2, 3, dark);
+        p.px(0, -3, mid);
+        p.px(0, -4, light);
+        p.vline(2, -1, 2, dark);
+        p.px(2, -2, mid);
+        p.px(2, -3, light);
+        p.px(-1, 0, dark);
+        p.px(-2, -1, mid);
+        p.px(-2, -2, light);
+      })[0];
+    }
+    lawnPoses.set(key, part);
+  }
+  return part;
+}
+
 defineAsset({
   id: 'grass.tuft',
   name: 'Tall grass tuft',
   group: 'groundcover',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['grass', 'tuft', 'meadow', 'wild'],
   build() {
@@ -1289,7 +1408,7 @@ defineAsset({
         blade(p, x, y, h, lean, base, tip);
       });
     });
-    return makeVariant({ w: 1, h: 1, mask: ['.'], parts, shadows: [shadow(7, 22, 18, 5)] });
+    return makeVariant({ w: 1, h: 1, mask: ['.'], frames: windFrames([], parts, 1), anim: WIND, shadows: [shadow(7, 22, 18, 5)] });
   },
 });
 
@@ -1299,6 +1418,7 @@ defineAsset({
   group: 'groundcover',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['flowers', 'wild', 'meadow', 'daisy'],
   build() {
@@ -1322,7 +1442,7 @@ defineAsset({
         }
       }
     });
-    return makeVariant({ w: 1, h: 1, mask: ['.'], parts });
+    return makeVariant({ w: 1, h: 1, mask: ['.'], frames: windFrames([], parts, 0.6), anim: WIND });
   },
 });
 
@@ -1332,6 +1452,7 @@ defineAsset({
   group: 'rock',
   category: 'Outdoor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['rock', 'stone', 'boulder', 'pond'],
   build() {
@@ -1385,6 +1506,7 @@ defineAsset({
   group: 'marking',
   category: 'Outdoor',
   layer: 'floor',
+  placement: 'free',
   facings: ['down'],
   keywords: ['parking', 'bay', 'marking', 'lines'],
   build() {
@@ -1403,6 +1525,7 @@ defineAsset({
   group: 'marking',
   category: 'Outdoor',
   layer: 'floor',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['crosswalk', 'zebra', 'marking'],
   build(facing: Dir) {
@@ -1426,6 +1549,7 @@ defineAsset({
   group: 'marking',
   category: 'Outdoor',
   layer: 'floor',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['lane', 'dash', 'centre line', 'road', 'marking'],
   build(facing: Dir) {

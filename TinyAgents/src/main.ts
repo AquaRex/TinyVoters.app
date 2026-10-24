@@ -1,32 +1,64 @@
 import './style.css';
 import './art';
-import { TILE } from './config';
+import './features';
+import { app, Floor } from './app';
+import { STOREY_H, TILE } from './config';
 import { Agent } from './agents/agent';
-import { Director } from './agents/director';
-import { OfficeStatus, watchOffice } from './cloud/api';
+import { OfficeStatus, visitToken, watchOffice } from './cloud/api';
 import { Renderer } from './render/renderer';
 import { AgentPanel } from './ui/agentPanel';
 import { ConnectDialog } from './ui/connect';
 import { Editor } from './ui/editor';
+import { FloorSwitch } from './ui/floorSwitch';
 import { Roster } from './ui/roster';
-import { loadLayout } from './world/layout';
-import { Office } from './world/office';
+import { initAmbient } from './ui/ambient';
+import { initMusic } from './ui/music';
+import { initNotify } from './ui/notify';
+import { initOfficeSound } from './ui/officeSound';
+import { initReplay } from './ui/replay';
+import { initReport, openBoardAt } from './ui/report';
+import { openSignAt } from './features/plaques';
+import { initSettings } from './ui/settings';
+import { addFloor, floorOf, initFloors, removeBlocker, removeFloor, resetBuilding, routeInfos } from './world/floors';
+
+const PREFS_KEY = 'tiny-agents.prefs.v2';
+const prefs: { demo: boolean; clock: boolean; hour: number } = (() => {
+  const defaults = { demo: true, clock: true, hour: 13 };
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
+  } catch {
+    return defaults;
+  }
+})();
 
 const canvas = document.getElementById('world') as HTMLCanvasElement;
-const office = new Office(loadLayout());
 const renderer = new Renderer<Agent>(canvas);
-const director = new Director(office);
-renderer.liftOpen = (uid) => director.liftOpen(uid);
+app.renderer = renderer;
+initFloors((f) => {
+  f.director.clock = () => renderer.lighting.hour;
+});
+/** The floor on screen: the picked level of the live building, or of a temporary one (the replay). */
+const shown = (): Floor => app.shown;
+renderer.liftOpen = (uid) => shown().director.liftOpen(uid);
 if (import.meta.env.DEV) {
-  Object.assign(window, { tiny: { office, director, renderer, editor: () => editor } });
+  Object.assign(window, { tiny: { app, renderer, director: () => shown().director, editor: () => editor } });
 }
-const editor = new Editor(office, renderer, toast);
+/** Edits the visible floor of the live building. */
+const editor = new Editor(() => app.current.office, renderer, toast, resetBuilding);
+const floorSwitch = new FloorSwitch(showFloor, () => showFloor(addFloor()), (f) => {
+  const why = removeBlocker(f);
+  if (why) {
+    toast(why);
+  } else if (confirm(`Remove ${f.label}? Everything on it is lost.`)) {
+    removeFloor(f);
+  }
+});
 const panel = new AgentPanel(() => (renderer.selected = null));
 const roster = new Roster(selectAgent, matchMedia('(pointer: coarse)').matches || window.innerWidth < 700);
 
 renderer.resize();
-renderer.camera.x = (office.w * TILE) / 2;
-renderer.camera.y = (office.h * TILE) / 2;
+renderer.camera.x = (shown().office.w * TILE) / 2;
+renderer.camera.y = (shown().office.h * TILE) / 2;
 renderer.camera.zoom = Math.max(1, Math.round((window.devicePixelRatio || 1) * (window.innerWidth < 900 ? 1 : 2)));
 window.addEventListener('resize', () => renderer.resize());
 
@@ -42,6 +74,9 @@ officePill.addEventListener('click', () => connect.open());
 emptyHint.querySelector('button')!.addEventListener('click', () => connect.open());
 
 function setEditMode(on: boolean): void {
+  if (on && visitToken) {
+    return;
+  }
   editor.setActive(on);
   document.body.classList.toggle('editing', on);
   modeBtn.textContent = on ? 'Done editing' : 'Edit office';
@@ -51,15 +86,8 @@ function setEditMode(on: boolean): void {
   }
 }
 modeBtn.addEventListener('click', () => setEditMode(!editor.active));
+modeBtn.hidden = !!visitToken;
 
-const PREFS_KEY = 'tiny-agents.prefs.v2';
-const prefs: { demo: boolean; clock: boolean } = (() => {
-  try {
-    return { demo: true, clock: true, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
-  } catch {
-    return { demo: true, clock: true };
-  }
-})();
 function savePrefs(): void {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -72,7 +100,7 @@ const demoBtn = document.getElementById('demoBtn') as HTMLButtonElement;
 function setDemo(on: boolean): void {
   prefs.demo = on;
   demoBtn.classList.toggle('on', on);
-  director.setDemo(on);
+  app.building.staff.setDemo(on);
 }
 demoBtn.addEventListener('click', () => {
   setDemo(!prefs.demo);
@@ -81,36 +109,50 @@ demoBtn.addEventListener('click', () => {
 setDemo(prefs.demo);
 
 const timeBtn = document.getElementById('timeBtn') as HTMLButtonElement;
+const timeCtl = timeBtn.parentElement!;
+const timeInput = document.querySelector<HTMLInputElement>('#timeSlider input')!;
+const hhmm = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+/** Real time ("Clock"), or the hour picked on the slider. */
 function setClock(on: boolean): void {
   prefs.clock = on;
-  renderer.lighting.followClock = on;
-  timeBtn.textContent = on ? 'Clock' : 'Day';
+  renderer.lighting.fixedHour = on ? null : prefs.hour;
+  timeBtn.textContent = on ? 'Clock' : hhmm(prefs.hour);
   timeBtn.classList.toggle('on', on);
+  timeCtl.classList.toggle('manual', !on);
+  timeInput.value = String(prefs.hour);
 }
 timeBtn.addEventListener('click', () => {
   setClock(!prefs.clock);
   savePrefs();
 });
+timeInput.addEventListener('input', () => {
+  prefs.hour = Number(timeInput.value);
+  setClock(false);
+});
+timeInput.addEventListener('change', savePrefs);
+timeInput.addEventListener('pointerdown', () => timeCtl.classList.add('dragging'));
+window.addEventListener('pointerup', () => timeCtl.classList.remove('dragging'));
 setClock(prefs.clock);
-director.clock = () => renderer.lighting.hour;
 document.getElementById('helpBtn')!.addEventListener('click', () => (help.hidden = !help.hidden));
 document.getElementById('zoomIn')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1));
 document.getElementById('zoomOut')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, -1));
 help.querySelector('.close')!.addEventListener('click', () => (help.hidden = true));
 
 function updateHud(): void {
-  const present = director.agents.filter((a) => !a.leaving);
+  const present = app.agents.filter((a) => !a.leaving);
   const working = present.filter((a) => a.info.busy).length;
   const claude = present.filter((a) => a.claude).length;
   const labels: Record<OfficeStatus, string> = {
-    online: `Live · ${claude} Claude agent${claude === 1 ? '' : 's'} · ${working} working`,
+    online: visitToken
+      ? `Visiting · ${claude} agent${claude === 1 ? '' : 's'}`
+      : `Live · ${claude} Claude agent${claude === 1 ? '' : 's'} · ${working} working`,
     connecting: 'Connecting…',
     offline: 'Office offline: retrying…',
     unpaired: 'Demo office · Connect Claude',
   };
   officePill.textContent = labels[officeStatus];
   officePill.dataset.state = officeStatus;
-  emptyHint.hidden = !(officeStatus === 'online' && claude === 0) || editor.active || prefs.demo;
+  emptyHint.hidden = !(officeStatus === 'online' && claude === 0) || editor.active || prefs.demo || !!visitToken;
 }
 
 let toastTimer = 0;
@@ -122,20 +164,46 @@ function toast(msg: string): void {
   toastTimer = window.setTimeout(() => el.classList.remove('show'), 1800);
 }
 
+/** Switches the view to another floor; the camera stays put (every floor shares the map's coordinates). */
+function showFloor(f: Floor): void {
+  const live = app.floors.find((x) => x.level === f.level) ?? app.floors[0];
+  if (live === app.current) {
+    return;
+  }
+  app.current = live;
+  if (renderer.selected && renderer.selected.floor !== shown().director) {
+    panel.close();
+  }
+  renderer.hovered = null;
+}
+
 function selectAgent(a: Agent): void {
   if (editor.active) {
     setEditMode(false);
   }
+  const floor = floorOf(a);
+  if (floor) {
+    showFloor(floor);
+  }
   renderer.selected = a;
   panel.open(a);
   renderer.camera.x = a.x;
-  renderer.camera.y = a.y - 24;
+  renderer.camera.y = a.y - 24 - lifted(shown());
 }
+app.toast = toast;
+app.selectAgent = selectAgent;
 
 watchOffice(
-  (agents) => director.sync(agents),
+  (agents) => routeInfos(agents),
   (s) => (officeStatus = s),
 );
+initNotify();
+initOfficeSound();
+initMusic();
+initReplay();
+initReport();
+initSettings();
+initAmbient();
 
 // ---------- input ----------
 
@@ -150,7 +218,7 @@ function tileAt(sx: number, sy: number): [number, number] {
 
 function agentAt(sx: number, sy: number): Agent | undefined {
   const [wx, wy] = renderer.screenToWorld(sx, sy);
-  return [...director.agents].sort((a, b) => b.y - a.y).find((a) => a.alpha > 0.5 && a.hitTest(wx, wy));
+  return [...shown().director.agents].sort((a, b) => b.y - a.y).find((a) => a.alpha > 0.5 && a.hitTest(wx, wy));
 }
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -239,6 +307,10 @@ canvas.addEventListener('pointerup', (e) => {
     const a = agentAt(e.clientX, e.clientY);
     if (a) {
       selectAgent(a);
+    } else if (openBoardAt(...renderer.screenToWorld(e.clientX, e.clientY))) {
+      panel.close();
+    } else if (!visitToken && openSignAt(...renderer.screenToWorld(e.clientX, e.clientY), e.clientX, e.clientY)) {
+      panel.close();
     } else if (panel.agent) {
       panel.close();
     }
@@ -351,8 +423,23 @@ function panWithKeys(dt: number): void {
 
 function clampCamera(): void {
   const cam = renderer.camera;
+  const { office } = shown();
   cam.x = Math.max(0, Math.min(office.w * TILE, cam.x));
   cam.y = Math.max(0, Math.min(office.h * TILE, cam.y));
+}
+
+/** How far up a storey is drawn (camera coordinates stay those of the ground, so the street never jumps). */
+function lifted(f: Floor): number {
+  return f.level * STOREY_H;
+}
+
+/** A followed person who takes the lift or the stairs takes the view along to their new floor. */
+function followSelected(): void {
+  const a = renderer.selected;
+  const at = a && !a.gone && panel.follow ? floorOf(a) : undefined;
+  if (at && at !== shown() && !app.override && !editor.active) {
+    showFloor(at);
+  }
 }
 
 // ---------- loop ----------
@@ -361,25 +448,36 @@ let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  director.update(dt);
+  app.building.staff.update(dt);
+  for (const f of app.floors) {
+    f.director.update(dt);
+  }
+  followSelected();
+  const floor = shown();
   panWithKeys(dt);
   if (panel.follow && panel.agent) {
     const cam = renderer.camera;
     cam.x += (panel.agent.x - cam.x) * Math.min(1, dt * 4);
-    cam.y += (panel.agent.y - 24 - cam.y) * Math.min(1, dt * 4);
+    cam.y += (panel.agent.y - 24 - lifted(floor) - cam.y) * Math.min(1, dt * 4);
   }
-  if (renderer.selected && !director.agents.includes(renderer.selected)) {
+  if (renderer.selected && renderer.selected.floor !== floor.director) {
     panel.close();
   }
   clampCamera();
   panel.tick(dt);
-  renderer.render(office, director.agents, director.cars, editor.overlay);
-  roster.update(director.agents, renderer.selected);
+  const under = app.tower.floors
+    .filter((f) => f.level < floor.level)
+    .map((f) => ({ lift: lifted(f), office: f.office, agents: f.director.agents, cars: f.director.cars, layers: f.director.extensions, liftOpen: (uid: number) => f.director.liftOpen(uid) }));
+  renderer.lift = lifted(floor);
+  renderer.render(floor.office, floor.director.agents, floor.director.cars, editor.overlay, floor.director.extensions, under);
+  roster.update(app.agents, renderer.selected);
+  floorSwitch.update();
   updateHud();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+// in dev too, so phone alerts can be tried on localhost (the worker caches nothing there)
+if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((e) => console.warn('service worker not registered', e));
 }

@@ -26,6 +26,8 @@ export class Conversation {
     /** start even if not everyone made it by then */
     private readyBy: number,
     private rand: () => number,
+    /** lines for a team meeting (planning, splitting up work, a wrap-up) instead of generic meeting talk */
+    private topic?: readonly string[],
   ) {
     this.members = [...members];
     const chat = members.reduce((s, m) => s + m.traits.chattiness, 0) / members.length;
@@ -120,6 +122,9 @@ export class Conversation {
     }
     const r = this.rand();
     if (this.kind === 'meeting') {
+      if (this.topic && r < 0.75) {
+        return pickFrom(this.topic, this.rand);
+      }
       if (r < 0.2) {
         return pickFrom(a.role.phrases, this.rand);
       }

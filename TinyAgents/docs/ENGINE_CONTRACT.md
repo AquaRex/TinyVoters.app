@@ -41,7 +41,7 @@ All art files already exist as stubs; fill them in.
 | --- | --- | --- |
 | `TILE` | 32 | tile size in px |
 | `FOOT_Y` | 26 | an agent standing on a tile has its foot point at (tile x + 16, tile y + 26) |
-| `WALL_LINE` | 8 | thickness of a wall line (walls are thin lines inside their tile, see below) |
+| `WALL_LINE` | 8 | thickness of a horizontal wall's cap line (see Walls below) |
 | `WALL_FACE_H` | 40 | height of a wall face in px |
 | `ZOOM_LEVELS` | `[1, 2, 3, 4]` | integer zoom only (pixel-perfect) |
 
@@ -61,29 +61,29 @@ So a chair whose back faces the viewer (sitter faces 'up') puts its backrest in 
 faces 'up' toward (desk north of the chair) has its z at the desk's south edge, below the sitter's
 foot y, so the sitter draws over the desk front. Artists control layering entirely through part `z`.
 
-## Walls (thin cutaway walls)
+## Walls (cutaway walls that fill their tile)
 
-Wall tiles hold a wall style id. The engine draws each wall as a `WALL_LINE`-thick line inside its tile:
-- hugging the outside of the building on exterior walls, and centred between two rooms on interior walls
-- with a cap (style `cap` colours) raised by `WALL_FACE_H`
-- with a face hanging from the cap down to the floor line wherever the line's south side is open floor;
-  the face is painted by the style's `faceSlice`
+Wall tiles hold a wall style id. Walls fill their tile, so furniture in the next tile stands flush against them:
+- a horizontal wall is a `WALL_LINE`-thick line on the tile's **south edge**, with a cap (style `cap` colours) raised
+  by `WALL_FACE_H`; wherever its south side is open floor (or empty, on an upper floor's outside edge) a face hangs
+  from the cap down to the floor line and covers the whole wall tile. The face is painted by the style's `faceSlice`
+- a vertical run is a **full tile wide** and shows only its cap; its bottom tile shows a face where the run ends
 
-Vertical runs show only the cap. The engine adds floor ambient occlusion along wall bases. Walls
-near agents fade to about 40% so people behind them stay visible. Wall-layer assets (art, TVs, sconces,
-windows) hang on visible faces.
+Assets tagged `placement: 'wall'` keep their back edge on the footprint's back edge, so placed in the tile next to a
+wall they touch it. The engine adds floor ambient occlusion along wall bases. Walls near agents fade to about 40% so
+people behind them stay visible. Wall-layer assets (art, TVs, sconces, windows) hang on visible faces.
 
-## The building: elevated office floor, façade, front door
+## The building: real floors
 
-The office we see is **the 2nd floor**. The building interior is a raised plateau: its south edge drops to
-street level through a **façade band**, a row of façade assets (3 tiles tall, `category: 'Structure'`)
-placed directly south of the building's south wall. The façade shows the ground floor (glass, entrance
-doors) and the 1st floor (windows), so the height reads clearly. All façade tiles block movement.
+The building has real storeys (`Building` in `src/world/layout.ts`; default from `hqBuilding()` in
+`src/world/levels/hq.ts`). Each floor has its own layout, `Office` and `Director`; level 0 is the ground floor and
+holds the outdoors (street, car park, park). Upper floors are drawn over the ground floor so the outdoors stays
+visible around the building. The lift and stairs sit at the same tiles on every floor.
 
-People arrive by car (or walk in from the street), go to the **front door** (`facade.entrance`, spot
-activity `enter` on the street tile in front of the doors), and **disappear inside**. After a believable
-delay they **appear upstairs**: out of the **elevator** (doors open, they step out) or up the **stairs**.
-Leaving is the reverse: elevator or stairs, a delay, then out of the front door, back to the car, and drive off.
+People arrive by car (or walk in from the street), walk through the ground floor's front doors, and take the lift or
+stairs to their home floor; leaving is the reverse. Cross-floor trips (lunch in the canteen, the server room…) use
+the director's `spotsAnywhere` / `routeTo` / `visit` (see the `Director` doc comment). Rooms are labelled per floor
+in `Layout.rooms` (`RoomLabel`: kind, name, an inside tile).
 
 ## Office API (`src/world/office.ts`, engine programmer)
 

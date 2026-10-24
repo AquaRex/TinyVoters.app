@@ -6,6 +6,7 @@ import { Tile } from './nav';
 import { Person } from './people';
 import { Personality, Profession, personalityFor } from './professions';
 import type { Conversation } from './social';
+import type { Director } from './director';
 
 /** What the Claude agent behind a person is doing (see docs/CLAUDE_INTEGRATION.md). */
 export type ClaudeState = 'starting' | 'thinking' | 'tool' | 'permission' | 'idle' | 'compacting' | 'error';
@@ -15,6 +16,8 @@ export interface AgentInfo {
   kind: 'main' | 'sub';
   type: string;
   project: string;
+  /** computer the session runs on (x-tiny-machine) */
+  machine?: string;
   /** derived from state: thinking, tool or compacting */
   busy: boolean;
   /** derived from state: permission */
@@ -43,6 +46,8 @@ export interface AgentInfo {
   background?: number;
   subagents?: number;
   recent?: { ago: number; text: string }[];
+  /** a permission request a paired device may answer (away mode only) */
+  approval?: { id: string; tool: string; detail?: string };
 }
 
 /** One step of a task. Steps run in order; a task ends when its last step is done. */
@@ -128,8 +133,16 @@ export class Agent {
   task: Task | null = null;
   conv: Conversation | null = null;
   homeDesk: string | null = null;
+  /** desk spot key this person used last time (recurring staff), tried first when picking a desk */
+  preferredDesk: string | null = null;
   /** reserved spot or standing tile keys */
   holds = new Set<string>();
+  /** the floor this person is on right now (set by the director that spawns or receives them) */
+  floor!: Director;
+  /** the floor of their desk, where they go to work */
+  homeFloor!: Director;
+  /** a spot reserved on another floor for the trip under way (released if the trip is dropped) */
+  bound: { d: Director; key: string } | null = null;
   leaving = false;
   gone = false;
   arrived = false;
@@ -172,9 +185,14 @@ export class Agent {
     return this.person.name;
   }
 
-  /** A Claude Code session (not built-in demo staff). */
+  /** A Claude Code session (not built-in demo staff or building staff). */
   get claude(): boolean {
     return !this.demo;
+  }
+
+  /** Building staff (chefs, IT, security, reception, cleaners): not a coworker, never on a team. */
+  get npc(): boolean {
+    return this.id.startsWith('npc:');
   }
 
   get isSub(): boolean {
@@ -265,7 +283,7 @@ export class Agent {
 
   /** Walks along `path`; returns true on arrival. `canEnter` gates stepping into the next tile (local avoidance). */
   walk(dt: number, canEnter: (x: number, y: number) => boolean): boolean {
-    if (this.waveT > 0 || this.pauseT > 0) {
+    if (this.pauseT > 0) {
       this.pauseT = Math.max(0, this.pauseT - dt);
       this.moving = false;
       return false;

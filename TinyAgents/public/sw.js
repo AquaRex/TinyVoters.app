@@ -1,6 +1,8 @@
 // Tiny Agents service worker: offline app shell. Built assets are content-hashed, so cache-first is safe;
 // the page itself is network-first so a new deploy shows up on the next visit.
 // The site shares its origin (and cache storage) with TinyVoters, so only our own caches are ever deleted.
+// It also shows phone alerts (web push from the tiny-push Edge Function), with the app closed too.
+// On localhost (vite dev) it caches nothing, so dev modules are never served stale.
 const CACHE = 'tiny-agents-v1';
 
 self.addEventListener('install', (e) => {
@@ -16,7 +18,8 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/api/')) {
+  const dev = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+  if (dev || e.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/api/')) {
     return;
   }
   if (e.request.mode === 'navigate') {
@@ -43,5 +46,36 @@ self.addEventListener('fetch', (e) => {
           return res;
         }),
     ),
+  );
+});
+
+self.addEventListener('push', (e) => {
+  const d = e.data ? e.data.json() : {};
+  e.waitUntil(
+    self.registration.showNotification(d.title || 'Tiny Agents', {
+      body: d.body || '',
+      tag: d.tag,
+      renotify: !!d.tag,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+    }),
+  );
+});
+
+// Push and in-app alerts (src/ui/notify.ts): focus the open tab, and for in-app alerts tell it which agent to select.
+self.addEventListener('notificationclick', (e) => {
+  const agent = e.notification.data?.tinySelect;
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.registration.scope));
+      if (!open) {
+        return self.clients.openWindow(self.registration.scope);
+      }
+      if (typeof agent === 'string') {
+        open.postMessage({ tinySelect: agent });
+      }
+      return open.focus();
+    }),
   );
 });

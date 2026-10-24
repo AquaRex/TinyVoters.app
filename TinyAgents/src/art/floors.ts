@@ -401,7 +401,7 @@ const grassTones = [mix(grassR[2], grassR[3], 0.45), grassR[3], mix(grassR[3], g
 const meadowTones = [mix(grassR[3], grassR[4], 0.2), mix(grassR[3], grassR[4], 0.5), mix(grassR[4], grassR[5], 0.1)];
 
 /** Grass patch shade 0-2 at world px, quantised on 2 px cells with ragged edges. */
-function grassShade(wx: number, wy: number): number {
+export function grassShade(wx: number, wy: number): number {
   const cx = wx >> 1;
   const cy = wy >> 1;
   const n = fbm2(cx * 2, cy * 2, 110, 21) + (hash2(cx, cy, 22) - 0.5) * 0.07;

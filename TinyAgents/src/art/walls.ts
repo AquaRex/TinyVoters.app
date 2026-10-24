@@ -186,8 +186,8 @@ defineWallStyle({
       if (r === 15) {
         return steel[3];
       }
-      if (r === 39) {
-        return steel[3];
+      if (r >= 35) {
+        return [steel[5], steel[3], steel[3], steel[2], steel[1]][r - 35];
       }
       const ty = Math.floor((r - 16) / 8);
       const v = r - 16 - ty * 8;

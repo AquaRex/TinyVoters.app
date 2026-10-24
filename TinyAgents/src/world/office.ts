@@ -1,7 +1,7 @@
 import { FOOT_Y, TILE } from '../config';
 import { asset, floor, variant } from '../art/registry';
 import { Activity, AssetDef, Dir, Spot, Variant } from '../art/types';
-import { Layout, PlacedItem, saveLayout } from './layout';
+import { Layout, PlacedItem } from './layout';
 
 export interface SpotRef extends Spot {
   activity: Activity;
@@ -203,7 +203,6 @@ export class Office {
 
   private commit(): void {
     this.rebuild();
-    saveLayout(this.layout);
     for (const fn of this.listeners) {
       fn();
     }

@@ -1,18 +1,26 @@
 import { Activity } from '../art/types';
 import { hash, seeded } from '../render/pixel';
-import { CarView } from '../render/renderer';
+import { CarView, RenderLayer } from '../render/renderer';
 import { DIR_STEP, Office, SpotRef } from '../world/office';
 import { Act, Agent, AgentInfo, Step, Task, TaskKind } from './agent';
 import { Car } from './car';
-import { DemoStaff, demoIdentity } from './demo';
+import { demoIdentity } from './demo';
 import { Lift } from './lift';
 import { NEIGHBORS, Nav, Tile } from './nav';
 import { NeedId, Needs, criticalNeed, decay, restore, urgency } from './needs';
-import { personFor } from './people';
-import { GREETINGS, PROFESSION_BY_ID, SHY_GREETINGS, pickFrom, professionFor, toolPhrase } from './professions';
+import { adoptLegacy, lastDesk, personFor, staffSlot } from './people';
+import { PROFESSION_BY_ID, SHY_GREETINGS, greetings, pickFrom, professionFor, toolPhrase } from './professions';
 import { ConvKind, Conversation } from './social';
-import { Target, call, hangout, walkTo } from './steps';
+import { Target, call, defer, hangout, pause, unless, walkTo } from './steps';
+import type { Staff } from './staff';
+import { PLACE_SPOTS, Place, labLamps, placeOf, track } from './toolPlaces';
+import { playCue } from '../ui/sound';
 import { Travel } from './travel';
+import { FRIEND, affinity, bond } from './relationships';
+import { outdoorAppeal, pizzaTime } from '../world/calendar';
+import { NPC_ROLES, itOnDuty, npcDef, npcTask } from './buildingStaff';
+import { canteenLunch } from './canteen';
+import { roomAt, roomsOf } from './rooms';
 
 interface ActivityDef {
   id: string;
@@ -64,21 +72,71 @@ const MICRO_BREAK: Partial<Record<NeedId, string[]>> = {
 
 const IDLE_KINDS: TaskKind[] = ['idle', 'fun', 'chat', 'outside', 'lunch'];
 
+/** Thinking longer than this ends a tool streak (the person heads back to the desk). */
+const THINK_GRACE = 4;
+/** Seconds into a permission wait: walk over and ring the reception bell, then back to the desk on the phone. */
+const BELL_AT = 20;
+const PHONE_AT = 60;
+const PLACE_STATUS: Record<Place, string> = {
+  files: 'Pulling the files',
+  web: 'Off to the internet kiosk',
+  server: 'Off to the server rack',
+  qa: 'Running the tests',
+};
+/** A tool streak this long (seconds) is worth the trip to a tool place on another floor (the server room, the archive). */
+const CROSS_FLOOR_TRIP = 20;
+/** Long Bash runs and test runs: worth walking to the rack or the QA bench on this floor after this long. */
+const RUN_TRIP = 10;
+const HELP_LINES = ['it broke again', 'got a sec?', 'error after error', 'help?', 'it says 500...'];
+const TECH_LINES = ['have you tried restarting?', 'let me look', 'ah, I see', 'try now', 'fixed!', 'classic'];
+type LunchStyle = 'canteen' | 'kitchen' | 'desk' | 'skip';
+/** What a trip to another floor counts as when comparing spots, in tiles per level. */
+const FLOOR_COST = 30;
+
+/** A spot on some floor of the building, with that floor's director. */
+export interface FloorSpot {
+  d: Director;
+  spot: SpotRef;
+}
+
+/**
+ * A feature that lives beside the director (one instance per director, so per floor). It sees every agent's
+ * info changes and may draw into the world through the RenderLayer hooks.
+ */
+export interface DirectorExtension extends RenderLayer {
+  update?(dt: number): void;
+  onSpawn?(a: Agent): void;
+  onInfo?(a: Agent, was: AgentInfo, now: AgentInfo): void;
+  onGone?(a: Agent): void;
+}
+
+const EXTENSIONS: ((d: Director) => DirectorExtension)[] = [];
+
+/** Registers a feature for every director created afterwards (register at module load, from src/features). */
+export function registerExtension(make: (d: Director) => DirectorExtension): void {
+  EXTENSIONS.push(make);
+}
+
 function forcedHour(): number | null {
   const t = new URLSearchParams(location.search).get('time');
   return t !== null && !Number.isNaN(parseFloat(t)) ? parseFloat(t) : null;
 }
 
 /**
- * Runs the office: who is in (Claude sessions from the bridge plus optional demo staff), how they arrive and
- * leave, what they do (utility AI over needs and personality, with Claude's busy / waiting state taking
- * priority), and their social life (greetings, conversations, meetings, lunch).
+ * Runs one floor of the building: the people on it right now (the building's roster lives in Staff), how they
+ * arrive, leave and change floors, what they do (utility AI over needs and personality, with Claude's busy /
+ * waiting state taking priority), and their social life (greetings, conversations, meetings, lunch).
+ *
+ * Cross-floor API for behaviour code (steps run on whichever floor the person is on by then):
+ * - `spotsAnywhere(a, activities)`: free spots on every floor, nearest first, as `{ d, spot }`.
+ * - `routeTo(a, d, target)`: walks there, taking the lift or the stairs first when `d` is another floor.
+ * - `visit(a, pick, stay)`: goes to a spot on any floor, runs `stay` there, then returns to the floor it left.
+ * - `travel.toFloor(a, d)`: only the lift / stairs trip; `defer(build)` (steps.ts) plans the rest on arrival.
  */
 export class Director {
   agents: Agent[] = [];
   readonly nav: Nav;
   readonly travel: Travel;
-  time = 0;
   rand = Math.random;
   /** Hour of day (0..24) driving lunch and park breaks. Defaults to ?time= or the local clock. */
   clock: () => number;
@@ -89,20 +147,29 @@ export class Director {
   private lifts = new Map<number, Lift>();
   /** Stall door openness by toilet item uid: shut while someone sits inside. */
   private stalls = new Map<number, number>();
-  private claudeInfos: AgentInfo[] = [];
-  /** The first roster from the bridge / the demo after the page opened: those people are already at work. */
-  private firstClaude = true;
-  private firstDemo = true;
-  private demo = new DemoStaff(Math.random);
-  private demoOn = false;
+  /** project -> nav room id it claimed: a project's people share a desk room while any of them is in */
+  readonly projectRooms = new Map<string, number>();
   private lastSpawn = -10;
+  /** tiles where nobody should stand around (doorways, 1-wide lanes, corridors, lift and stair mouths), by office version */
+  private passages = { version: -1, tiles: new Set<number>() };
+  /** standing people asked to shuffle aside for someone stuck behind them, with the tile they shuffle to */
+  private nudged = new Map<Agent, Tile>();
+  /** who is giving way to whom: the yielder waits on its side tile until the other has gone past */
+  private yields = new Map<Agent, { other: Agent; from: Tile; until: number }>();
   private socialClock = 0;
   private meetingAt = 40;
   private lunchInvites = 0;
+  readonly extensions: DirectorExtension[];
 
-  constructor(readonly office: Office) {
+  constructor(
+    readonly office: Office,
+    readonly staff: Staff,
+    /** 0 is the ground floor */
+    readonly level: number,
+  ) {
     this.nav = new Nav(office);
     this.travel = new Travel(this);
+    this.extensions = EXTENSIONS.map((make) => make(this));
     const forced = forcedHour();
     this.clock = () => {
       if (forced !== null) {
@@ -120,22 +187,9 @@ export class Director {
     return this.carList;
   }
 
-  get demoEnabled(): boolean {
-    return this.demoOn;
-  }
-
-  /** Built-in demo staff on / off. Turning it off sends them home (they leave properly). */
-  setDemo(on: boolean): void {
-    if (on === this.demoOn) {
-      return;
-    }
-    this.demoOn = on;
-    if (on) {
-      this.demo.start(this.time < 2);
-    } else {
-      this.demo.stop();
-    }
-    this.reconcile([]);
+  /** The building's clock (shared by every floor, so times carry over when people change floors). */
+  get time(): number {
+    return this.staff.time;
   }
 
   /** Animation state (0..1) for director-driven assets: elevator state for lifts, door openness for toilet stalls. */
@@ -155,49 +209,26 @@ export class Director {
     }
   }
 
-  /** The Claude sessions reported by the bridge. */
-  sync(infos: AgentInfo[]): void {
-    this.claudeInfos = infos;
-    this.reconcile(this.demoOn ? this.demo.update(0) : []);
-    this.firstClaude = false;
-  }
-
   get hour(): number {
     return this.clock();
   }
 
   // ---------------------------------------------------------------- roster
 
-  private reconcile(demoInfos: AgentInfo[]): void {
-    const wanted = new Map<string, AgentInfo>();
-    for (const info of [...this.claudeInfos, ...demoInfos]) {
-      wanted.set(info.id, info);
+  /** New info for someone on this floor (Staff calls it). Lifecycle events go to the home floor's extensions. */
+  applyInfo(a: Agent, info: AgentInfo): void {
+    this.onInfo(a, a.info, info);
+    for (const ext of a.homeFloor.extensions) {
+      ext.onInfo?.(a, a.info, info);
     }
-    for (const a of this.agents) {
-      const info = wanted.get(a.id);
-      wanted.delete(a.id);
-      if (!info) {
-        if (!a.leaving) {
-          this.dismiss(a);
-        }
-        continue;
-      }
-      if (!a.leaving) {
-        this.onInfo(a, a.info, info);
-        a.info = info;
-      }
-    }
-    for (const info of wanted.values()) {
-      this.spawn(info, this.alreadyAtWork(info));
-    }
-    if (demoInfos.length) {
-      this.firstDemo = false;
-    }
+    this.staff.meetings.onInfo(a, a.info, info);
+    a.info = info;
   }
 
   /** Reactions to Claude state changes that aren't just "go work" / "take a break". */
   private onInfo(a: Agent, was: AgentInfo, now: AgentInfo): void {
-    if (!a.claude || !a.arrived) {
+    this.trackWork(a, was, now);
+    if (!a.arrived) {
       return;
     }
     if (now.state === 'error' && was.state !== 'error') {
@@ -211,6 +242,7 @@ export class Director {
       if (now.error === 'rate_limit' || now.error === 'overloaded') {
         a.chain = 'coffee';
       }
+      this.maybeHelp(a, 0.5);
     } else if (now.state === 'compacting' && was.state !== 'compacting') {
       a.say('tidying my notes', 2.5);
     } else if (now.state === 'idle' && (was.state === 'thinking' || was.state === 'tool')) {
@@ -220,32 +252,70 @@ export class Director {
     }
   }
 
-  /**
-   * People who were already working before the page opened skip the trip in: a Claude session that has been
-   * running for a while when the bridge first reports it, and demo staff on the first roster.
-   */
-  private alreadyAtWork(info: AgentInfo): boolean {
-    if (demoIdentity(info.id)) {
-      return this.firstDemo;
+  /** Some people walk down to IT help after an error (not too often). */
+  private maybeHelp(a: Agent, chance: number): void {
+    const t = track(a);
+    if (!a.isSub && this.time >= t.helpAt && this.rand() < chance) {
+      t.helpDue = true;
+      t.helpAt = this.time + 150;
     }
-    return this.firstClaude && (info.age ?? 0) > 20;
   }
 
-  private spawn(info: AgentInfo, present = false): void {
-    const ident = demoIdentity(info.id);
-    const role = (ident && PROFESSION_BY_ID.get(ident.profession)) || professionFor(info.type);
-    let slot: string;
-    if (ident) {
-      slot = `demo#${ident.index}`;
-    } else {
-      const used = new Set(this.agents.map((a) => a.slot));
-      let n = 0;
-      while (used.has(`${role.id}#${n}`)) {
-        n++;
+  /** Tool streaks (for walking to tool places), the start of a permission wait, and compaction chores. */
+  private trackWork(a: Agent, was: AgentInfo, now: AgentInfo): void {
+    const t = track(a);
+    if ((now.errors ?? 0) > (was.errors ?? 0)) {
+      if (this.time - t.errorAt < 90) {
+        this.maybeHelp(a, 0.6);
       }
-      slot = `${role.id}#${n}`;
+      t.errorAt = this.time;
+    }
+    const place = now.state === 'tool' || now.state === 'thinking' ? placeOf(now) : null;
+    if (now.state === 'tool' && was.state === 'thinking' && t.thinkSince >= 0 && this.time - t.thinkSince > THINK_GRACE) {
+      t.since = this.time;
+    }
+    if (place !== t.place) {
+      t.place = place;
+      t.since = this.time;
+      t.delay = place === 'server' || place === 'qa' ? RUN_TRIP + this.rand() * 2 : 6 + this.rand() * 2.5;
+    }
+    if (now.state !== 'thinking') {
+      t.thinkSince = -1;
+    } else if (t.thinkSince < 0) {
+      t.thinkSince = this.time;
+    }
+    if (now.waiting && !was.waiting) {
+      t.waitSince = this.time;
+    }
+    if (now.state === 'compacting' && was.state !== 'compacting') {
+      t.shredDue = true;
+    } else if (now.state !== 'compacting') {
+      t.shredDue = false;
+    }
+  }
+
+  /**
+   * Brings a newcomer onto this floor (Staff calls it). `present` people were already at work before the page
+   * opened and start at their desk; everyone else arrives (by car or on foot, then up to `home`).
+   */
+  spawn(info: AgentInfo, home: Director, present: boolean): void {
+    const npc = npcDef(info.id);
+    const ident = npc ? { name: npc.name, profession: npc.role, index: -2 } : demoIdentity(info.id);
+    const role = (npc && NPC_ROLES.get(npc.role)) || (ident && PROFESSION_BY_ID.get(ident.profession)) || professionFor(info.type);
+    const everyone = this.staff.agents;
+    const parent = info.parent ? everyone.find((o) => o.id === info.parent) : undefined;
+    const slot = npc ? info.id : ident && ident.index >= 0 ? `demo#${ident.index}` : staffSlot(info, parent?.slot, new Set(everyone.filter((o) => !o.leaving).map((o) => o.slot)));
+    if (!ident) {
+      adoptLegacy(slot, `${role.id}#${everyone.filter((o) => !o.leaving && o.claude && o.role.id === role.id).length}`);
     }
     const a = new Agent(info, role, slot, personFor(slot, role, ident?.name), !!ident, seeded(hash(slot)));
+    a.floor = this;
+    a.homeFloor = home;
+    a.preferredDesk = lastDesk(slot);
+    const t = track(a);
+    t.spawnedAt = this.time;
+    t.waitSince = this.time - (info.waiting ? info.stateFor ?? 0 : 0);
+    t.shredDue = info.state === 'compacting';
     if (present) {
       a.task = {
         kind: 'arrive',
@@ -255,6 +325,7 @@ export class Director {
         steps: [{ locked: true, tick: (x) => (this.placePresent(x), true) }],
       };
       this.agents.push(a);
+      home.extensions.forEach((ext) => ext.onSpawn?.(a));
       return;
     }
     const start = Math.max(this.time, this.lastSpawn + (info.kind === 'sub' ? 0.8 : 2.5));
@@ -267,12 +338,13 @@ export class Director {
       steps: [{ locked: true, status: 'On the way', tick: () => this.time >= start }, ...this.travel.arrival(a)],
     };
     this.agents.push(a);
+    home.extensions.forEach((ext) => ext.onSpawn?.(a));
   }
 
   /** At the desk when Claude is working or waiting on you, otherwise somewhere in the office; the car is already parked. */
   private placePresent(a: Agent): void {
     if (!a.isSub && this.rand() < a.traits.drives) {
-      this.travel.parkNow(a);
+      this.staff.ground.travel.parkNow(a);
     }
     const desk = a.info.busy || a.info.waiting ? this.deskFor(a) : undefined;
     const [tx, ty] = desk ? [desk.x, desk.y] : this.office.randomIndoorTile(this.rand);
@@ -282,10 +354,11 @@ export class Director {
     a.arrived = true;
   }
 
-  private dismiss(a: Agent): void {
+  /** Sends someone home (Staff calls it when they leave the roster). */
+  dismiss(a: Agent): void {
     a.leaving = true;
     if (a.homeDesk) {
-      this.release(a.homeDesk, a);
+      a.homeFloor.release(a.homeDesk, a);
       a.homeDesk = null;
     }
     if (!a.arrived && a.hidden && !this.carList.some((c) => c.owner === a)) {
@@ -309,7 +382,7 @@ export class Director {
     a.holds.add(key);
   }
 
-  private release(key: string, a: Agent): void {
+  release(key: string, a: Agent): void {
     if (this.reserved.get(key) === a) {
       this.reserved.delete(key);
     }
@@ -322,6 +395,14 @@ export class Director {
       if (key !== keep && key !== a.homeDesk) {
         this.release(key, a);
       }
+    }
+  }
+
+  /** Lets go of a spot reserved on another floor for a trip that was dropped. */
+  private unbind(a: Agent): void {
+    if (a.bound) {
+      a.bound.d.release(a.bound.key, a);
+      a.bound = null;
     }
   }
 
@@ -342,6 +423,32 @@ export class Director {
 
   liftExists(lift: Lift): boolean {
     return this.lifts.get(lift.uid) === lift;
+  }
+
+  /**
+   * Moves someone to another floor's director, mid-trip (hidden in the lift or the stairwell): lets go of what they
+   * held here (their desk stays theirs) and keeps their task, which goes on over there.
+   */
+  handOver(a: Agent, to: Director): void {
+    if (a.floor !== this || to === this) {
+      return;
+    }
+    for (const key of [...a.holds]) {
+      if (this.reserved.get(key) === a && !(key === a.homeDesk && a.homeFloor === this)) {
+        this.release(key, a);
+      }
+    }
+    for (const lift of this.lifts.values()) {
+      lift.forget(a);
+    }
+    a.conv?.leave(a);
+    a.seated = false;
+    a.path = [];
+    a.seg = null;
+    a.goal = null;
+    this.agents = this.agents.filter((x) => x !== a);
+    to.agents.push(a);
+    a.floor = to;
   }
 
   addCar(car: Car): void {
@@ -373,51 +480,172 @@ export class Director {
 
   /** Path cost around people standing still, so walkers route around groups and queues. */
   crowdPenalty(a: Agent, target?: Target): (x: number, y: number) => number {
-    const still = new Set<number>();
+    const w = this.office.w;
+    const cost = new Map<number, number>();
     for (const b of this.visibleOthers(a)) {
       if (!b.moving) {
-        still.add(b.ty * this.office.w + b.tx);
+        cost.set(b.ty * w + b.tx, 25);
+        continue;
+      }
+      // walkers: keep to the free lane of a 2-wide corridor instead of walking into them
+      for (const [x, y] of [[b.tx, b.ty], ...b.path.slice(0, 3)]) {
+        cost.set(y * w + x, Math.max(cost.get(y * w + x) ?? 0, 4));
       }
     }
-    return (x, y) => (still.has(y * this.office.w + x) && !(target && x === target.x && y === target.y) ? 25 : 0);
+    return (x, y) => (target && x === target.x && y === target.y ? 0 : cost.get(y * w + x) ?? 0);
+  }
+
+  /** Doorways (and the tiles either side), 1-wide lanes, corridors, and the tiles in front of the lift and stairs. */
+  passage(x: number, y: number): boolean {
+    const { office } = this;
+    if (this.passages.version !== office.version) {
+      const tiles = new Set<number>();
+      const add = (tx: number, ty: number) => tiles.add(ty * office.w + tx);
+      for (const item of office.layout.items) {
+        if (office.defOf(item)?.door) {
+          [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => add(item.x + dx, item.y + dy));
+        }
+      }
+      for (const s of [...office.spotsFor('elevator'), ...office.spotsFor('stairs')]) {
+        add(s.x, s.y);
+        add(s.x, s.y + 1);
+      }
+      const corridors = new Set(roomsOf(this).filter((r) => r.label.kind === 'corridor').map((r) => r.nav));
+      for (let ty = 0; ty < office.h; ty++) {
+        for (let tx = 0; tx < office.w; tx++) {
+          if (!office.walkable(tx, ty) || office.isOutdoor(tx, ty)) {
+            continue;
+          }
+          const lane = (!office.walkable(tx - 1, ty) && !office.walkable(tx + 1, ty)) || (!office.walkable(tx, ty - 1) && !office.walkable(tx, ty + 1));
+          if (lane || corridors.has(this.nav.roomOf(tx, ty))) {
+            add(tx, ty);
+          }
+        }
+      }
+      this.passages = { version: office.version, tiles };
+    }
+    return this.passages.tiles.has(y * office.w + x);
   }
 
   private occupant(a: Agent, x: number, y: number): Agent | undefined {
     return this.visibleOthers(a).find((b) => (b.tx === x && b.ty === y) || (b.seg && b.seg[0] === x && b.seg[1] === y));
   }
 
-  /** Blocked walkers detour, step aside for someone coming the other way, and as a last resort squeeze past. */
+  /**
+   * Blocked walkers detour; when two meet head-on the one with a free side tile steps aside; someone just standing in
+   * the way shuffles to a free tile; only then, as a last resort, the walker squeezes past.
+   */
   resolveBlock(a: Agent): void {
     const next = a.path[0];
     const goal = a.goal;
-    if (!next || !goal) {
+    if (!next || !goal || this.yields.has(a)) {
       return;
     }
     const b = this.occupant(a, next[0], next[1]);
-    if (a.blockedFor > 0.45 && !a.detoured) {
+    const passing = b && [...this.yields].some(([y, w]) => (y === b && w.other === a) || (y === a && w.other === b));
+    if (passing) {
+      a.blockedFor = Math.min(a.blockedFor, 1);
+      return;
+    }
+    // two walkers in each other's way: exactly one gives way (never both re-path into the same lane)
+    const meeting = b && !b.seated && b.path.slice(0, 2).some(([x, y]) => x === a.tx && y === a.ty);
+    if (b && meeting && a.blockedFor > 0.35) {
+      if (this.giveWay(a, b)) {
+        return;
+      }
+    } else if (a.blockedFor > 0.35 && !a.detoured) {
       a.detoured = true;
       const base = this.crowdPenalty(a);
       const p = this.nav.path(a.tx, a.ty, goal[0], goal[1], (x, y) => base(x, y) + (x === next[0] && y === next[1] ? 40 : 0));
-      if (p && p.length && (p[0][0] !== next[0] || p[0][1] !== next[1])) {
+      if (p && p.length && (p[0][0] !== next[0] || p[0][1] !== next[1]) && p.length <= a.path.length + 8) {
         a.path = p;
         a.blockedFor = 0.01;
         return;
       }
     }
-    const headOn = b && b.path[0] && b.path[0][0] === a.tx && b.path[0][1] === a.ty;
-    if (a.blockedFor > 1.1 && b && headOn && a.id < b.id) {
-      const side = NEIGHBORS.map(([dx, dy]): Tile => [a.tx + dx, a.ty + dy]).find(
-        ([x, y]) => this.nav.open(x, y) && !(x === next[0] && y === next[1]) && this.canEnter(a, x, y) && !b.path.slice(0, 2).some(([px, py]) => px === x && py === y),
-      );
-      if (side) {
-        a.path = [side];
-        a.blockedFor = 0;
-        a.pauseT = 0;
+    if (b && !meeting && a.blockedFor >= 0.6 && !b.moving && !b.seated && !b.locked && !b.path.length && !this.nudged.has(b)) {
+      const tile = this.sideTile(b, next, a);
+      if (tile) {
+        b.path = [tile];
+        b.goal = tile;
+        this.nudged.set(b, tile);
+        a.blockedFor = 0.3;
         return;
       }
     }
     if (a.blockedFor > 2.6) {
       a.ghostT = 1.4;
+    }
+  }
+
+  /**
+   * Head-on (or crossing) walkers: one of the pair, chosen by a stable priority (the one whose id sorts first, unless
+   * it has no room or is in transit), steps to a side tile off the other's next few tiles and waits there until the
+   * other has passed. Returns false when neither can make room.
+   */
+  private giveWay(a: Agent, b: Agent): boolean {
+    const [first, second] = a.id < b.id ? [a, b] : [b, a];
+    for (const [y, p] of [[first, second], [second, first]]) {
+      if (y.locked || y.seated || !y.path.length) {
+        continue;
+      }
+      const tile = this.sideTile(y, y.path[0], p, p.path.slice(0, 3));
+      if (!tile) {
+        continue;
+      }
+      this.yields.set(y, { other: p, from: [y.tx, y.ty], until: this.time + 6 });
+      y.path = [tile];
+      y.blockedFor = 0;
+      y.pauseT = 0;
+      p.blockedFor = 0;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * True while `a` waits on its side tile for the other walker to go past (walkTo holds its re-plan meanwhile). The
+   * wait ends once the other is clear of the tile `a` stepped off, has stopped walking, or after a few seconds.
+   */
+  givingWay(a: Agent): boolean {
+    const w = this.yields.get(a);
+    if (!w) {
+      return false;
+    }
+    const o = w.other;
+    const near = (x: number, y: number) => Math.abs(x - w.from[0]) + Math.abs(y - w.from[1]) <= 1;
+    const coming = o.path.slice(0, 3).some(([x, y]) => near(x, y)) || near(o.tx, o.ty);
+    if (o.gone || o.hidden || o.floor !== this || !o.goal || this.time > w.until || !coming) {
+      this.yields.delete(a);
+      return false;
+    }
+    return true;
+  }
+
+  /** A free plain tile beside `who` that isn't on the other person's way (`avoid`), off passages first. */
+  private sideTile(who: Agent, ahead: Tile, other: Agent, avoid: Tile[] = []): Tile | undefined {
+    const blocked: Tile[] = [ahead, ...other.path.slice(0, 1), ...avoid, [other.tx, other.ty], ...[...this.yields.values()].map((w) => w.from)];
+    return NEIGHBORS.map(([dx, dy]): Tile => [who.tx + dx, who.ty + dy])
+      .filter(([x, y]) => this.nav.open(x, y) && this.canEnter(who, x, y) && !blocked.some(([px, py]) => px === x && py === y))
+      .sort((p, q) => +this.passage(p[0], p[1]) - +this.passage(q[0], q[1]))[0];
+  }
+
+  /** Moves nudged people onto their side tile (their hangout goes on there). */
+  private shuffle(dt: number): void {
+    for (const [a, tile] of this.nudged) {
+      if (a.goal === tile && !a.walk(dt, (x, y) => this.canEnter(a, x, y))) {
+        continue;
+      }
+      this.nudged.delete(a);
+      if (a.goal === tile) {
+        a.goal = null;
+        for (const key of [...a.holds]) {
+          if (key.startsWith('t:')) {
+            this.release(key, a);
+          }
+        }
+        this.hold(a, `t:${tile[0]},${tile[1]}`);
+      }
     }
   }
 
@@ -431,7 +659,7 @@ export class Director {
     return n ?? this.office.nearestWalkable(a.tx, a.ty);
   }
 
-  /** Free plain floor tiles near (x, y), nearest first. */
+  /** Free plain floor tiles near (x, y), nearest first; passages (doorways, lanes, corridors) only after every other tile. */
   freeTilesNear(a: Agent, x: number, y: number, r: number): Tile[] {
     const out: [Tile, number][] = [];
     for (let dy = -r; dy <= r; dy++) {
@@ -445,19 +673,20 @@ export class Director {
         if (this.office.spots.some((s) => s.x === tx && s.y === ty) || !this.canEnter(a, tx, ty)) {
           continue;
         }
-        out.push([[tx, ty], d + this.rand() * 0.5]);
+        out.push([[tx, ty], d + this.rand() * 0.5 + (this.passage(tx, ty) ? 20 : 0)]);
       }
     }
     return out.sort((p, q) => p[1] - q[1]).map(([t]) => t);
   }
 
+  /** Where the agent's desk (or a subagent's lead's desk) is, when it's on this floor. */
   deskTile(a: Agent): Tile | undefined {
-    const own = this.spotByKey(a.homeDesk);
+    const own = a.homeFloor === this ? this.spotByKey(a.homeDesk) : undefined;
     if (own) {
       return [own.x, own.y];
     }
-    const parent = a.info.parent ? this.agents.find((o) => o.id === a.info.parent) : undefined;
-    const ps = parent && this.spotByKey(parent.homeDesk);
+    const parent = this.parentOf(a);
+    const ps = parent && parent.homeFloor === this ? this.spotByKey(parent.homeDesk) : undefined;
     return ps ? [ps.x, ps.y] : undefined;
   }
 
@@ -467,9 +696,10 @@ export class Director {
 
   // ---------------------------------------------------------------- clock
 
-  private lunchTime(): boolean {
+  /** Lunch hours: the canteen serves and people go down to eat. */
+  lunchTime(): boolean {
     const h = this.hour;
-    return h >= 12 && h < 13.5;
+    return h >= 11 && h < 13;
   }
 
   private daylight(): boolean {
@@ -485,16 +715,18 @@ export class Director {
 
   update(dt: number): void {
     dt = Math.min(dt, 0.1);
-    this.time += dt;
     this.nav.sync();
-    if (this.demoOn) {
-      this.reconcile(this.demo.update(dt));
-    }
     for (const lift of this.lifts.values()) {
       lift.update(dt, this.time);
     }
     this.updateStalls(dt);
     this.updateCars(dt);
+    this.shuffle(dt);
+    for (const [y] of this.yields) {
+      if (y.floor !== this || y.gone) {
+        this.yields.delete(y);
+      }
+    }
     const lunch = this.lunchTime();
     for (const a of this.agents) {
       a.tickTimers(dt);
@@ -526,10 +758,20 @@ export class Director {
       this.startConversations();
       this.maybeMeeting();
     }
+    for (const ext of this.extensions) {
+      ext.update?.(dt);
+    }
     for (const a of this.agents.filter((x) => x.gone)) {
       this.cleanupGone(a);
+      a.homeFloor.extensions.forEach((ext) => ext.onGone?.(a));
     }
     this.agents = this.agents.filter((a) => !a.gone);
+    const everyone = this.staff.agents;
+    for (const project of this.projectRooms.keys()) {
+      if (!everyone.some((a) => !a.leaving && a.info.project === project)) {
+        this.projectRooms.delete(project);
+      }
+    }
   }
 
   private cleanupGone(a: Agent): void {
@@ -538,7 +780,7 @@ export class Director {
       this.release(key, a);
     }
     if (a.homeDesk) {
-      this.release(a.homeDesk, a);
+      a.homeFloor.release(a.homeDesk, a);
     }
     for (const lift of this.lifts.values()) {
       lift.forget(a);
@@ -583,7 +825,7 @@ export class Director {
       return;
     }
     task.started = true;
-    for (let guard = 0; guard < 6 && a.task === task; guard++) {
+    for (let guard = 0; guard < 6 && a.task === task && a.floor === this; guard++) {
       const step = task.steps[0];
       if (!step) {
         this.endTask(a, true);
@@ -613,6 +855,7 @@ export class Director {
     }
     a.task = null;
     task.cleanup?.();
+    this.unbind(a);
     a.act = 'idle';
     a.moving = false;
     if (!ok) {
@@ -633,6 +876,7 @@ export class Director {
       step.end?.(a);
     }
     task.cleanup?.();
+    this.unbind(a);
     if (a.conv) {
       a.conv.leave(a);
     }
@@ -653,6 +897,10 @@ export class Director {
       return;
     }
     const k = a.task.kind;
+    if (k === 'wait' && !a.info.waiting && !a.leaving) {
+      this.interrupt(a);
+      return;
+    }
     let switchTo = false;
     if (a.leaving) {
       switchTo = k !== 'leave';
@@ -680,54 +928,127 @@ export class Director {
   private decide(a: Agent): void {
     let task: Task | null = null;
     if (a.leaving) {
-      task = this.task('leave', 'Heading home', 'leave', this.travel.departure(a));
+      task = this.task('leave', 'Heading home', 'leave', [...this.folderBack(a), ...this.travel.departure(a)]);
     } else if (!a.arrived) {
       task = this.task('arrive', 'Arriving', 'arrive', this.travel.arrival(a));
+    } else if (a.npc) {
+      task = npcTask(this, a);
+    } else if ((a.info.waiting || a.info.busy) && a.homeFloor !== this && this.travel.connects(a.homeFloor)) {
+      task = this.task(a.info.waiting ? 'wait' : 'work', 'Heading to the desk', 'home', this.travel.toFloor(a, a.homeFloor) ?? []);
     } else if (a.info.waiting) {
       task = this.waitTask(a);
     } else if (a.info.busy) {
-      task = this.microBreak(a) ?? this.workTask(a);
+      task = this.microBreak(a) ?? this.detour(a) ?? this.workTask(a);
+    } else if (track(a).helpDue) {
+      task = this.helpTask(a);
     } else if (a.chain) {
       const def = ACTIVITY_BY_ID.get(a.chain);
       a.chain = null;
-      const spot = def && this.findSpot(a, def);
-      task = def && spot ? this.activityTask(a, def, spot) : null;
+      const pick = def && this.findSpot(a, def);
+      task = def && pick ? this.activityTask(a, def, pick) : null;
     }
-    if (!task && !a.info.busy && !a.info.waiting && !a.leaving) {
+    if (!task && !a.info.busy && !a.info.waiting && !a.leaving && !a.npc) {
       task = this.chooseIdle(a);
     }
     a.task = task ?? this.task('idle', 'Looking around', 'pause', [hangout({ seconds: 1.5 + this.rand() * 2, chatty: true })]);
   }
 
-  private task(kind: TaskKind, label: Task['label'], activity: string, steps: Step[], cleanup?: () => void): Task {
+  task(kind: TaskKind, label: Task['label'], activity: string, steps: Step[], cleanup?: () => void): Task {
     return { kind, label, activity, steps, started: false, cleanup };
   }
 
   // ---------------------------------------------------------------- work
 
-  /** The agent's desk: keeps one for the whole visit. Subagents sit near their parent (same room first). */
+  /**
+   * The agent's desk: keeps one for the whole visit. People of one project share a claimed room (see
+   * projectDesk); subagents sit near their parent (same room first); overflow takes the nearest free desk.
+   */
   private deskFor(a: Agent): SpotRef | undefined {
+    if (a.homeFloor !== this) {
+      return undefined;
+    }
     const own = this.spotByKey(a.homeDesk);
     if (own) {
       return own;
     }
     a.homeDesk = null;
+    const desk = (!a.isSub && this.projectDesk(a)) || this.nearestDesk(a);
+    if (desk) {
+      a.homeDesk = desk.key;
+      this.reserved.set(desk.key, a);
+    }
+    return desk;
+  }
+
+  private takeable(a: Agent, s: SpotRef | undefined): s is SpotRef {
+    return !!s && this.isFree(s.key, a) && this.deskRoom(s) && this.travel.reachable(a, s.x, s.y);
+  }
+
+  /** Desks in named service rooms (the guard's, the IT tech's) aren't for coworkers. */
+  private deskRoom(s: SpotRef): boolean {
+    const room = roomAt(this, s.x, s.y);
+    return !room || room.label.kind === 'office';
+  }
+
+  /** A desk in the project's room, claiming a free desk room for the project's first person. */
+  private projectDesk(a: Agent): SpotRef | undefined {
+    const project = a.info.project;
+    if (!project) {
+      return undefined;
+    }
+    const preferred = this.spotByKey(a.preferredDesk);
+    const usable = this.takeable(a, preferred) ? preferred : undefined;
+    const room = this.projectRooms.get(project) ?? this.claimRoom(project, usable);
+    if (room === undefined) {
+      return usable;
+    }
+    if (usable && this.nav.roomOf(usable.x, usable.y) === room) {
+      return usable;
+    }
+    const dist = (s: SpotRef) => Math.abs(s.x - a.tx) + Math.abs(s.y - a.ty);
+    return this.office
+      .spotsFor('work')
+      .filter((s) => this.nav.roomOf(s.x, s.y) === room && this.isFree(s.key, a) && this.deskRoom(s))
+      .sort((p, q) => dist(p) - dist(q))
+      .find((s) => this.travel.reachable(a, s.x, s.y));
+  }
+
+  /** Claims the unclaimed indoor room with the most free desks (the preferred desk's room first). */
+  private claimRoom(project: string, preferred: SpotRef | undefined): number | undefined {
+    const taken = new Set(this.projectRooms.values());
+    const free = new Map<number, number>();
+    for (const s of this.office.spotsFor('work')) {
+      const room = this.nav.roomOf(s.x, s.y);
+      if (room > 0 && !taken.has(room) && !this.reserved.get(s.key) && this.deskRoom(s)) {
+        free.set(room, (free.get(room) ?? 0) + 1);
+      }
+    }
+    const pref = preferred && this.nav.roomOf(preferred.x, preferred.y);
+    const room = pref && free.has(pref) ? pref : [...free].sort((p, q) => q[1] - p[1])[0]?.[0];
+    if (room !== undefined) {
+      this.projectRooms.set(project, room);
+    }
+    return room;
+  }
+
+  private nearestDesk(a: Agent): SpotRef | undefined {
     const anchor = this.deskTile(a) ?? [a.tx, a.ty];
     const room = this.nav.roomOf(anchor[0], anchor[1]);
+    const claimed = new Map([...this.projectRooms].map(([p, r]) => [r, p]));
+    const foreign = (s: SpotRef) => {
+      const owner = claimed.get(this.nav.roomOf(s.x, s.y));
+      return owner !== undefined && owner !== a.info.project;
+    };
     const kinds: [Activity, number][] = a.isSub ? [['work', 0], ['meeting', 6], ['social', 10]] : [['work', 0], ['meeting', 60], ['social', 80]];
     const options = this.office.spots
       .map((s) => ({ s, extra: kinds.find(([k]) => k === s.activity)?.[1] }))
-      .filter(({ s, extra }) => extra !== undefined && this.isFree(s.key, a) && !this.office.isOutdoor(s.x, s.y))
-      .map(({ s, extra }) => ({ s, d: Math.abs(s.x - anchor[0]) + Math.abs(s.y - anchor[1]) + extra! + (a.isSub && this.nav.roomOf(s.x, s.y) !== room ? 10 : 0) }))
+      .filter(({ s, extra }) => extra !== undefined && this.isFree(s.key, a) && !this.office.isOutdoor(s.x, s.y) && (s.activity !== 'work' || this.deskRoom(s)))
+      .map(({ s, extra }) => ({
+        s,
+        d: Math.abs(s.x - anchor[0]) + Math.abs(s.y - anchor[1]) + extra! + (a.isSub && this.nav.roomOf(s.x, s.y) !== room ? 10 : 0) + (!a.isSub && foreign(s) ? 30 : 0),
+      }))
       .sort((p, q) => p.d - q.d);
-    for (const { s } of options.slice(0, 5)) {
-      if (this.travel.reachable(a, s.x, s.y)) {
-        a.homeDesk = s.key;
-        this.reserved.set(s.key, a);
-        return s;
-      }
-    }
-    return undefined;
+    return options.slice(0, 5).find(({ s }) => this.travel.reachable(a, s.x, s.y))?.s;
   }
 
   private workLabel(a: Agent): () => string {
@@ -781,6 +1102,9 @@ export class Director {
         if (this.time >= x.breakAt && criticalNeed(x.needs, 0.15, ['bladder', 'thirst', 'energy', 'hunger'])) {
           return true;
         }
+        if (this.detourDue(x)) {
+          return true;
+        }
         if ((quip -= dt) <= 0) {
           quip = 25 + this.rand() * 40;
           if (!x.bubble && this.rand() < 0.5) {
@@ -823,8 +1147,8 @@ export class Director {
     a.breakAt = this.time + 60;
     for (const id of MICRO_BREAK[need] ?? []) {
       const def = ACTIVITY_BY_ID.get(id)!;
-      const spot = this.findSpot(a, def);
-      const task = spot && this.activityTask(a, def, spot);
+      const pick = this.findSpot(a, def);
+      const task = pick && this.activityTask(a, def, pick);
       if (task) {
         task.kind = 'need';
         return task;
@@ -833,44 +1157,337 @@ export class Director {
     return null;
   }
 
-  /** Waiting for the user's permission: at the desk, standing, waving and checking the phone. */
+  /** The tile beside the desk where someone stands while waiting. */
+  private deskSide(a: Agent, desk: SpotRef): Tile | undefined {
+    const [fx, fy] = DIR_STEP[desk.facing];
+    const spots = NEIGHBORS.map(([dx, dy]): Tile => [desk.x + dx, desk.y + dy]).filter(([x, y]) => !(x === desk.x + fx && y === desk.y + fy) && this.nav.open(x, y));
+    spots.sort((p, q) => +this.passage(p[0], p[1]) - +this.passage(q[0], q[1]));
+    return (a.seated && a.tx === desk.x && a.ty === desk.y ? a.seatExit : null) ?? spots[0];
+  }
+
+  /**
+   * Waiting for the user's permission, with rising urgency: waving and checking the phone by the desk; after BELL_AT
+   * seconds a walk to the reception bell (ding!); after PHONE_AT back by the desk on the phone. The review drops it
+   * the moment the wait is over.
+   */
   private waitTask(a: Agent): Task {
-    const desk = this.spotByKey(a.homeDesk);
+    const t = track(a);
+    const elapsed = () => this.time - t.waitSince;
+    const desk = a.homeFloor === this ? this.spotByKey(a.homeDesk) : undefined;
+    const side = desk && this.deskSide(a, desk);
+    const toDesk = (): Step[] => (side ? this.travel.route(a, { x: side[0], y: side[1], face: 'down' }, 'Waiting for you') ?? [] : []);
+    const bell = elapsed() < PHONE_AT ? this.nearSpot(a, ['bell']) : undefined;
+    const bellRoute = bell && this.travel.route(a, { x: bell.x, y: bell.y, spot: bell }, 'Going to ring the bell');
     const steps: Step[] = [];
-    if (desk) {
-      const [fx, fy] = DIR_STEP[desk.facing];
-      const spots = NEIGHBORS.map(([dx, dy]): Tile => [desk.x + dx, desk.y + dy]).filter(([x, y]) => !(x === desk.x + fx && y === desk.y + fy) && this.nav.open(x, y));
-      const pick = (a.seated && a.tx === desk.x && a.ty === desk.y ? a.seatExit : null) ?? spots[0];
-      if (pick) {
-        steps.push(...(this.travel.route(a, { x: pick[0], y: pick[1], face: 'down' }, 'Waiting for you') ?? []));
-      }
+    if (elapsed() < (bellRoute ? BELL_AT : PHONE_AT)) {
+      steps.push(...toDesk(), this.waitAt('wave', () => elapsed() >= (bellRoute ? BELL_AT : PHONE_AT)));
     }
+    if (bellRoute) {
+      steps.push(...bellRoute, this.ringBell(elapsed));
+    }
+    steps.push(...(bellRoute || elapsed() >= PHONE_AT ? toDesk() : []), this.waitAt('phone', () => false));
+    return this.task('wait', 'Waiting for you', 'wait', steps);
+  }
+
+  private waitAt(mode: 'wave' | 'phone', until: () => boolean): Step {
     let t = 0;
     let nag = 0;
-    steps.push({
+    return {
       status: 'Waiting for you',
       begin: (x) => {
         x.dir = 'down';
-        x.say('need you!', 4);
-        nag = 7 + this.rand() * 3;
+        x.say(mode === 'wave' ? 'need you!' : '?', 3);
+        nag = 6 + this.rand() * 3;
       },
       tick: (x, dt) => {
         t += dt;
         if (!x.seated) {
           x.dir = 'down';
         }
-        x.act = t % 8 < 1.8 ? 'wave' : 'phone';
+        x.act = mode === 'phone' || t % 8 >= 1.8 ? 'phone' : 'wave';
         if ((nag -= dt) <= 0) {
-          nag = 6 + this.rand() * 4;
-          x.say(this.rand() < 0.6 ? '?' : 'need you!', 2.5);
+          nag = mode === 'phone' ? 4 + this.rand() * 3 : 6 + this.rand() * 4;
+          x.say(mode === 'phone' || this.rand() < 0.6 ? '?' : 'need you!', 2.5);
         }
-        return !x.info.waiting || x.leaving;
+        return !x.info.waiting || x.leaving || until();
       },
       end: (x) => {
         x.act = 'idle';
       },
-    });
-    return this.task('wait', 'Waiting for you', 'wait', steps);
+    };
+  }
+
+  private ringBell(elapsed: () => number): Step {
+    let ding = 0;
+    return {
+      status: 'Ringing for you',
+      tick: (x, dt) => {
+        x.act = 'idle';
+        if ((ding -= dt) <= 0) {
+          ding = 11 + this.rand() * 4;
+          track(x).dingAt = this.time;
+          x.say('ding!', 1.4);
+          x.sayLater(pickFrom(['hello?', 'anyone?', 'need you!'], this.rand), 1.8, 2);
+          playCue('bell');
+        }
+        return !x.info.waiting || x.leaving || elapsed() >= PHONE_AT;
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- work visibility: tool places, chores, handoffs
+
+  /** Something to get up for while working: briefing a new subagent, shredding notes, IT help, a tool place. */
+  private detour(a: Agent): Task | null {
+    this.queueBrief(a);
+    return this.handoffTask(a) ?? this.shredTask(a) ?? this.helpTask(a) ?? this.toolTrip(a);
+  }
+
+  /** Ends the desk step when `detour` has something to do (each reason clears itself when it can't happen). */
+  private detourDue(a: Agent): boolean {
+    const t = track(a);
+    return t.shredDue || t.helpDue || this.pendingBriefs(a).length > 0 || this.tripDue(a);
+  }
+
+  /** Down to the IT help desk (any floor) with an error: explain it, get it fixed, back to the floor it left. */
+  private helpTask(a: Agent): Task | null {
+    const t = track(a);
+    if (!t.helpDue) {
+      return null;
+    }
+    t.helpDue = false;
+    const it = itOnDuty(this);
+    if (!it || a.info.waiting) {
+      return null;
+    }
+    const { tech, desk } = it;
+    const tile = tech.floor.freeTilesNear(a, desk.x, desk.y + 2, 1)[0];
+    const route = tile && this.routeTo(a, tech.floor, { x: tile[0], y: tile[1], face: 'up' }, 'Off to IT help');
+    if (!route) {
+      return null;
+    }
+    let left = 9 + this.rand() * 5;
+    let line = 0;
+    const chat: Step = {
+      status: 'Getting help from IT',
+      begin: (x) => tech.floor.hold(x, `t:${tile![0]},${tile![1]}`),
+      tick: (x, dt) => {
+        x.face(tech.x, tech.y);
+        tech.face(x.x, x.y);
+        if ((line -= dt) <= 0) {
+          line = 2.6;
+          const [who, lines] = Math.round(left / 2.6) % 2 ? [x, HELP_LINES] : [tech, TECH_LINES];
+          who.say(pickFrom(lines, this.rand), 2.2);
+        }
+        return (left -= dt) <= 0 || x.info.waiting;
+      },
+    };
+    const back = tech.floor === this ? [] : [defer((x: Agent) => tech.floor.travel.toFloor(x, this))];
+    return this.task('need', 'Off to IT help', 'it', [...route, chat, ...back]);
+  }
+
+  private parentOf(a: Agent): Agent | undefined {
+    return a.info.parent ? this.staff.agents.find((o) => o.id === a.info.parent) : undefined;
+  }
+
+  /** The nearest free spot of these kinds (best kind first) from the agent's desk. */
+  private nearSpot(a: Agent, kinds: Activity[]): SpotRef | undefined {
+    const [ax, ay] = this.deskTile(a) ?? [a.tx, a.ty];
+    return this.office.spots
+      .filter((s) => kinds.includes(s.activity) && this.isFree(s.key, a) && !this.office.isOutdoor(s.x, s.y))
+      .map((s) => ({ s, d: Math.abs(s.x - ax) + Math.abs(s.y - ay) + kinds.indexOf(s.activity) * 6 }))
+      .sort((p, q) => p.d - q.d)
+      .slice(0, 3)
+      .find(({ s }) => this.travel.reachable(a, s.x, s.y))?.s;
+  }
+
+  private thinkingLong(a: Agent): boolean {
+    const t = track(a);
+    return a.info.state === 'thinking' && t.thinkSince >= 0 && this.time - t.thinkSince > THINK_GRACE;
+  }
+
+  /** A tool streak (thinking between calls included) that has lasted long enough to walk over to its place. */
+  private tripDue(a: Agent): boolean {
+    const t = track(a);
+    return !!t.place && a.info.busy && a.info.state !== 'compacting' && this.time >= t.nextTrip && this.time - t.since >= t.delay && !this.thinkingLong(a);
+  }
+
+  private tripOver(a: Agent, place: Place): boolean {
+    const t = track(a);
+    return !a.info.busy || a.info.waiting || a.leaving || t.place !== place || t.shredDue || this.thinkingLong(a) || this.pendingBriefs(a).length > 0;
+  }
+
+  /** Reads at the archive, browses at the kiosk, runs commands at the rack, tests at the QA bench; back when the tool changes. */
+  private toolTrip(a: Agent): Task | null {
+    if (!this.tripDue(a)) {
+      return null;
+    }
+    const t = track(a);
+    const place = t.place!;
+    t.nextTrip = this.time + 15;
+    const pick = this.spotsAnywhere(a, PLACE_SPOTS[place], { near: this.deskTile(a) }).slice(0, 3).find((p) => p.d !== this || this.travel.reachable(a, p.spot.x, p.spot.y));
+    if (pick && pick.d !== this && this.time - t.since < CROSS_FLOOR_TRIP) {
+      t.nextTrip = t.since + CROSS_FLOOR_TRIP;
+      return null;
+    }
+    const spot = pick?.spot;
+    const route = pick && this.routeTo(a, pick.d, { x: pick.spot.x, y: pick.spot.y, spot: pick.spot }, PLACE_STATUS[place]);
+    if (!spot || !route) {
+      return null;
+    }
+    const lamps = labLamps(pick.d.office);
+    const errors = a.info.errors ?? 0;
+    const failed = (x: Agent) => (x.info.errors ?? 0) > errors;
+    let quip = 2 + this.rand() * 3;
+    const at: Step = {
+      begin: () => {
+        if (place === 'qa') {
+          lamps.set(spot.item.uid, { state: 'run', until: Infinity });
+        }
+      },
+      tick: (x, dt) => {
+        x.act = place === 'files' ? 'read' : 'idle';
+        if (place === 'qa' && failed(x)) {
+          lamps.set(spot.item.uid, { state: 'fail', until: Infinity });
+        }
+        if ((quip -= dt) <= 0) {
+          quip = 14 + this.rand() * 12;
+          if (!x.bubble) {
+            x.say(toolPhrase(x.info.tool, x.info.detail), 2.2);
+          }
+        }
+        return this.tripOver(x, place);
+      },
+      end: (x) => {
+        x.act = 'idle';
+        t.nextTrip = this.time + 6 + this.rand() * 6;
+        if (place === 'qa') {
+          lamps.set(spot.item.uid, { state: failed(x) ? 'fail' : 'pass', until: this.time + 30 });
+          x.say(failed(x) ? 'tests failed...' : 'all green!', 2);
+        }
+      },
+    };
+    const walk = route.map((s) => (s.locked ? s : unless(s, (x) => this.tripOver(x, place))));
+    return this.task('work', this.workLabel(a), `tool:${place}`, [...walk, at]);
+  }
+
+  /** Compaction as a chore: an armful of old notes to the shredder, then back to the desk. */
+  private shredTask(a: Agent): Task | null {
+    const t = track(a);
+    if (!t.shredDue) {
+      return null;
+    }
+    t.shredDue = false;
+    const spot = this.nearSpot(a, ['shred']);
+    const route = spot && this.travel.route(a, { x: spot.x, y: spot.y, spot }, 'Taking old notes to the shredder');
+    if (!spot || !route) {
+      return null;
+    }
+    let left = 3.5 + this.rand() * 2;
+    return this.task('work', 'Tidying notes (compacting)', 'shred', [
+      call(() => (t.carry = 'papers')),
+      ...route,
+      {
+        status: 'Shredding old notes',
+        begin: (x) => x.say('bzzzt...', 2),
+        tick: (_x, dt) => (left -= dt) <= 0,
+      },
+      call(() => (t.carry = null)),
+    ], () => (t.carry = null));
+  }
+
+  /** A subagent that just arrived asks its lead (busy, in the office) for a brief; otherwise it goes without. */
+  private queueBrief(a: Agent): void {
+    const t = track(a);
+    if (!a.isSub || t.briefed) {
+      return;
+    }
+    const lead = this.parentOf(a);
+    if (!lead || !lead.arrived || lead.hidden || lead.leaving || !lead.info.busy) {
+      t.briefed = true;
+      return;
+    }
+    const queue = track(lead).handoffs;
+    if (!queue.includes(a)) {
+      queue.push(a);
+    }
+  }
+
+  private pendingBriefs(a: Agent): Agent[] {
+    const t = track(a);
+    if (t.handoffs.length) {
+      t.handoffs = t.handoffs.filter((s) => !s.gone && !s.leaving && !track(s).briefed);
+    }
+    return t.handoffs;
+  }
+
+  /** The lead walks over to a new subagent (at its desk) and hands it a folder. */
+  private handoffTask(a: Agent): Task | null {
+    const sub = this.pendingBriefs(a)[0];
+    if (!sub) {
+      return null;
+    }
+    const st = track(sub);
+    const [gx, gy] = sub.goal ?? [sub.tx, sub.ty];
+    const tile = sub.floor !== this || this.zoneDiffers(a, gx, gy) ? undefined : this.freeTilesNear(a, gx, gy, 2)[0];
+    const route = tile && this.travel.route(a, { x: tile[0], y: tile[1] }, `Briefing ${sub.name}`);
+    if (!tile || !route) {
+      st.briefed = true;
+      return null;
+    }
+    const t = track(a);
+    let waited = 0;
+    return this.task('work', `Briefing ${sub.name}`, 'handoff', [
+      call(() => (t.carry = 'folder')),
+      ...route,
+      call((x) => this.hold(x, `t:${tile[0]},${tile[1]}`)),
+      {
+        status: `Briefing ${sub.name}`,
+        tick: (x, dt) => {
+          x.face(sub.x, sub.y);
+          waited += dt;
+          return sub.gone || sub.leaving || (x.tilesTo(sub) < 2.3 && !sub.moving) || waited > 15;
+        },
+      },
+      call((x) => {
+        if (sub.gone || sub.leaving) {
+          return;
+        }
+        t.carry = null;
+        st.carry = 'folder';
+        st.briefed = true;
+        x.say(pickFrom(['here you go', "here's the brief", 'all yours', 'good luck!'], this.rand), 2);
+        sub.sayLater(pickFrom(['on it!', 'got it', 'thanks!', 'roger'], this.rand), 0.7, 1.8);
+      }),
+      pause(1.2),
+    ], () => (t.carry = null));
+  }
+
+  /** A leaving subagent first walks its folder back to the lead. */
+  private folderBack(a: Agent): Step[] {
+    const t = track(a);
+    const lead = this.parentOf(a);
+    if (!a.isSub || t.carry !== 'folder' || t.returned || a.hidden || !lead || lead.floor !== this || lead.hidden || lead.leaving || this.zoneDiffers(a, lead.tx, lead.ty)) {
+      return [];
+    }
+    t.returned = true;
+    const tile = this.freeTilesNear(a, lead.tx, lead.ty, 2)[0];
+    const route = tile && this.travel.route(a, { x: tile[0], y: tile[1] }, 'Bringing the results back');
+    if (!route) {
+      return [];
+    }
+    return [
+      ...route,
+      call((x) => {
+        x.face(lead.x, lead.y);
+        t.carry = null;
+        x.say(pickFrom(['all done!', 'results!', 'done, boss'], this.rand), 2);
+        if (!lead.bubble) {
+          lead.sayLater(pickFrom(['thanks!', 'nice work', 'great'], this.rand), 0.7, 1.8);
+        }
+      }),
+      pause(1.2),
+    ];
   }
 
   // ---------------------------------------------------------------- free time
@@ -880,36 +1497,87 @@ export class Director {
     return last !== undefined && this.time - last < 120 ? 0.25 : 1;
   }
 
-  private findSpot(a: Agent, def: ActivityDef, near?: Tile): SpotRef | undefined {
-    const [ax, ay] = near ?? [a.tx, a.ty];
-    const options = this.office.spots
-      .filter((s) => {
-        if (!def.spots.includes(s.activity) || !this.isFree(s.key, a)) {
-          return false;
+  /**
+   * Free spots of these activities on every floor this one connects to, nearest first (activities listed first win
+   * ties). Distance is in tiles; another floor adds FLOOR_COST per level, going outside or inside 30 more.
+   * `outdoor`: 'no' (default) indoor spots only, 'only' outdoor spots only, 'any' both.
+   */
+  spotsAnywhere(a: Agent, activities: Activity[], opts: { near?: Tile; outdoor?: 'no' | 'only' | 'any' } = {}): FloorSpot[] {
+    const [ax, ay] = opts.near ?? [a.tx, a.ty];
+    const outdoor = opts.outdoor ?? 'no';
+    const here = this.office.isOutdoor(ax, ay);
+    const options: { pick: FloorSpot; cost: number }[] = [];
+    for (const d of this.staff.directors) {
+      if (d !== this && !this.travel.connects(d)) {
+        continue;
+      }
+      for (const s of d.office.spots) {
+        if (!activities.includes(s.activity) || !d.isFree(s.key, a)) {
+          continue;
         }
-        const out = this.office.isOutdoor(s.x, s.y);
-        return def.outdoor === 'only' ? out : def.outdoor === 'any' || !out;
-      })
-      .map((s) => ({
-        s,
-        d: Math.abs(s.x - ax) + Math.abs(s.y - ay) + (this.zoneDiffers(a, s.x, s.y) ? 30 : 0) + def.spots.indexOf(s.activity) * 8 + this.rand() * 3,
-      }))
-      .sort((p, q) => p.d - q.d);
-    for (const { s } of options.slice(0, 4)) {
-      if (this.travel.reachable(a, s.x, s.y)) {
-        return s;
+        const out = d.office.isOutdoor(s.x, s.y);
+        if (outdoor === 'only' ? !out : outdoor === 'no' && out) {
+          continue;
+        }
+        const levels = Math.abs(d.level - this.level);
+        const outsideFirst = levels ? false : here;
+        const cost = Math.abs(s.x - ax) + Math.abs(s.y - ay) + levels * FLOOR_COST + (out !== outsideFirst ? 30 : 0) + activities.indexOf(s.activity) * 8;
+        options.push({ pick: { d, spot: s }, cost });
       }
     }
-    return undefined;
+    return options.sort((p, q) => p.cost - q.cost).map((o) => o.pick);
   }
 
-  private distance(a: Agent, x: number, y: number): number {
-    return Math.abs(x - a.tx) + Math.abs(y - a.ty) + (this.zoneDiffers(a, x, y) ? 30 : 0);
+  private findSpot(a: Agent, def: ActivityDef, near?: Tile): FloorSpot | undefined {
+    const options = this.spotsAnywhere(a, def.spots, { near, outdoor: def.outdoor ?? 'no' });
+    const jittered = options.slice(0, 8).map((pick, i) => ({ pick, r: i + this.rand() * 1.5 })).sort((p, q) => p.r - q.r);
+    return jittered.slice(0, 4).find(({ pick }) => pick.d !== this || this.travel.reachable(a, pick.spot.x, pick.spot.y))?.pick;
+  }
+
+  /** How far a spot is for choosing what to do: tiles, plus the trip when it's on another floor or across the front door. */
+  private distance(a: Agent, pick: FloorSpot): number {
+    const { d, spot } = pick;
+    const trip = d === this ? (this.zoneDiffers(a, spot.x, spot.y) ? 30 : 0) : Math.abs(d.level - this.level) * FLOOR_COST;
+    return Math.abs(spot.x - a.tx) + Math.abs(spot.y - a.ty) + trip;
+  }
+
+  /**
+   * Steps that bring `a` to `target` on floor `to`: an ordinary route on this floor; otherwise the lift or stairs
+   * trip, then a walk on `to`. Null when there's no way.
+   */
+  routeTo(a: Agent, to: Director, target: Target, status?: string): Step[] | null {
+    if (to === this) {
+      return this.travel.route(a, target, status);
+    }
+    const trip = this.travel.toFloor(a, to);
+    if (!trip) {
+      return null;
+    }
+    const key = target.spot?.key;
+    if (key) {
+      this.unbind(a);
+      to.hold(a, key);
+      a.bound = { d: to, key };
+    }
+    return [...trip, call((x) => (x.bound = null), true), walkTo(to, target, status)];
+  }
+
+  /**
+   * Goes to a spot on any floor, runs `stay` there (e.g. a hangout), then comes back to this floor (out of the lift
+   * or stairs; the next decision takes it on from there). Null when the spot can't be reached.
+   */
+  visit(a: Agent, pick: FloorSpot, stay: Step[], status?: string): Step[] | null {
+    const there = this.routeTo(a, pick.d, { x: pick.spot.x, y: pick.spot.y, spot: pick.spot }, status);
+    if (!there) {
+      return null;
+    }
+    return pick.d === this ? [...there, ...stay] : [...there, ...stay, defer((x) => pick.d.travel.toFloor(x, this))];
   }
 
   private chooseIdle(a: Agent): Task | null {
     const options: { u: number; make: () => Task | null }[] = [];
-    const lunch = this.lunchTime() && a.lunchDay !== this.day;
+    const style = this.lunchStyle(a);
+    const lunch = this.lunchTime() && a.lunchDay !== this.day && style !== 'skip';
     for (const def of ACTIVITIES) {
       if (def.id === 'wash' || (def.id === 'park' && !this.daylight())) {
         continue;
@@ -922,17 +1590,27 @@ export class Director {
       if (def.id === 'eat') {
         u *= lunch ? 1.8 : 0.3;
       }
+      if (def.id === 'park') {
+        u *= outdoorAppeal();
+      }
+      if ((def.id === 'snack' || def.id === 'eat') && pizzaTime(this.hour)) {
+        u = u * 2 + 0.3;
+      }
       const crowd = this.agents.filter((b) => b !== a && b.task?.activity === def.id).length;
       u *= (this.recency(a, def.id) * (0.8 + this.rand() * 0.4)) / (1 + crowd * 0.6);
       if (u < 0.03) {
         continue;
       }
-      const spot = this.findSpot(a, def);
-      if (!spot) {
+      if (def.id === 'eat' && lunch && style !== 'kitchen') {
+        options.push({ u, make: () => (style === 'desk' ? this.deskLunch(a) : this.canteenLunch(a)) ?? this.kitchenLunch(a, def) });
         continue;
       }
-      u -= (def.outdoor === 'only' ? Math.abs(spot.x - a.tx) + Math.abs(spot.y - a.ty) : this.distance(a, spot.x, spot.y)) * 0.003;
-      options.push({ u, make: () => this.activityTask(a, def, spot) });
+      const pick = def.id === 'eat' && lunch ? this.spotsAnywhere(a, def.spots).find((p) => p.d === this) : this.findSpot(a, def);
+      if (!pick) {
+        continue;
+      }
+      u -= (def.outdoor === 'only' ? this.distance(a, pick) - (pick.d === this ? 30 : 0) : this.distance(a, pick)) * 0.003;
+      options.push({ u, make: () => this.activityTask(a, def, pick) });
     }
     if (this.deskFor(a)) {
       const u = (0.04 + a.traits.diligence * 0.12) * this.recency(a, 'desk') * (0.8 + this.rand() * 0.4);
@@ -954,8 +1632,79 @@ export class Director {
     return null;
   }
 
-  private activityTask(a: Agent, def: ActivityDef, spot: SpotRef): Task | null {
-    const route = this.travel.route(a, { x: spot.x, y: spot.y, spot });
+  /**
+   * How someone does lunch today (stable per person and day): most go down to the canteen, some eat on their own
+   * floor (the kitchenette), diligent ones at their desk, and a few skip it.
+   */
+  lunchStyle(a: Agent): LunchStyle {
+    const r = seeded(hash(`${a.slot}|${this.day}`))();
+    const d = a.traits.diligence;
+    if (r < 0.04 + d * 0.08) {
+      return 'skip';
+    }
+    if (r < 0.1 + d * 0.16) {
+      return 'desk';
+    }
+    if (r < 0.2 + d * 0.16 + (1 - a.traits.sociability) * 0.1) {
+      return 'kitchen';
+    }
+    return 'canteen';
+  }
+
+  /** Down to the canteen, asking a few free colleagues along (so the line fills up like a real lunch rush). */
+  private canteenLunch(a: Agent): Task | null {
+    const task = canteenLunch(this, a, (x) => this.ateLunch(x));
+    if (!task || this.time < this.lunchInvites) {
+      return task;
+    }
+    this.lunchInvites = this.time + 20;
+    const guests = this.staff.agents
+      .filter((b) => b !== a && b.floor.idleForGroup(b) && b.lunchDay !== this.day && b.floor.lunchStyle(b) === 'canteen' && (b.needs.hunger < 0.8 || affinity(a, b) >= FRIEND))
+      .sort((p, q) => affinity(a, q) - affinity(a, p))
+      .slice(0, 3);
+    if (guests.length) {
+      a.say('lunch?', 2);
+    }
+    for (const g of guests) {
+      const d = g.floor;
+      d.interrupt(g);
+      g.task = canteenLunch(d, g, (x) => d.ateLunch(x));
+      g.sayLater(pickFrom(['yes!', 'starving', 'sure!', 'yum'], this.rand), 0.7, 1.8);
+    }
+    return task;
+  }
+
+  private ateLunch(a: Agent): void {
+    a.lastDone.set('eat', this.time);
+    a.lunchDay = this.day;
+  }
+
+  /** Lunch on this floor (the kitchenette or any eating spot here), the canteen's fallback. */
+  private kitchenLunch(a: Agent, def: ActivityDef): Task | null {
+    const pick = this.spotsAnywhere(a, def.spots).find((p) => p.d === this);
+    return pick ? this.activityTask(a, def, pick) : null;
+  }
+
+  /** Something from the fridge, eaten at the desk. */
+  private deskLunch(a: Agent): Task | null {
+    const desk = this.deskFor(a);
+    const fridge = desk && this.spotsAnywhere(a, ['snack']).find((p) => p.d === this);
+    const route = fridge && this.travel.route(a, { x: fridge.spot.x, y: fridge.spot.y, spot: fridge.spot }, 'Grabbing lunch');
+    if (!desk || !fridge || !route) {
+      return null;
+    }
+    return this.task('lunch', 'Lunch at the desk', 'eat', [
+      ...route,
+      pause(2.5, 'Grabbing lunch'),
+      walkTo(this, { x: desk.x, y: desk.y, spot: desk }, 'Lunch at the desk'),
+      hangout({ seconds: 25 + this.rand() * 15, act: 'eat', gains: { hunger: 1, comfort: 0.2 } }),
+      call((x) => this.ateLunch(x)),
+    ]);
+  }
+
+  private activityTask(a: Agent, def: ActivityDef, pick: FloorSpot): Task | null {
+    const { spot } = pick;
+    const route = this.routeTo(a, pick.d, { x: spot.x, y: spot.y, spot });
     if (!route) {
       return null;
     }
@@ -966,7 +1715,7 @@ export class Director {
       steps.push(call((x) => (x.mug = 40 + this.rand() * 30)));
     }
     if (def.linger && !busy) {
-      steps.push(...this.linger(spot, def.linger));
+      steps.push(...pick.d.linger(spot, def.linger));
     }
     steps.push(
       call((x) => {
@@ -980,9 +1729,10 @@ export class Director {
       }),
     );
     if (def.id === 'eat' && this.lunchTime() && !busy) {
-      this.inviteToLunch(a, spot);
+      this.inviteToLunch(a, pick);
     }
-    const label = def.id === 'eat' ? () => (this.lunchTime() ? 'Having lunch' : 'Having a bite') : def.label;
+    const pizza = (def.id === 'snack' || def.id === 'eat') && pizzaTime(this.hour);
+    const label = pizza ? 'Pizza!' : def.id === 'eat' ? () => (this.lunchTime() ? 'Having lunch' : 'Having a bite') : def.label;
     return this.task(def.kind, label, def.id, steps);
   }
 
@@ -993,7 +1743,7 @@ export class Director {
       {
         begin: (x) => {
           const tile = this.freeTilesNear(x, spot.x, spot.y, 2)[0];
-          if (!tile) {
+          if (!tile || this.passage(tile[0], tile[1])) {
             return;
           }
           walk = walkTo(this, { x: tile[0], y: tile[1] });
@@ -1043,7 +1793,7 @@ export class Director {
       if (!this.nav.open(x, y) || this.office.isOutdoor(x, y) !== out || (i < 10 && this.nav.roomOf(x, y) === room)) {
         continue;
       }
-      if (this.office.spots.some((s) => s.x === x && s.y === y) || !this.isFree(`t:${x},${y}`, a) || !this.canEnter(a, x, y)) {
+      if (this.passage(x, y) || this.office.spots.some((s) => s.x === x && s.y === y) || !this.isFree(`t:${x},${y}`, a) || !this.canEnter(a, x, y)) {
         continue;
       }
       if (!this.nav.path(a.tx, a.ty, x, y)) {
@@ -1074,8 +1824,8 @@ export class Director {
       return undefined;
     }
     return this.agents
-      .filter((b) => b !== a && this.chatAvailable(b) && !b.info.busy && !this.zoneDiffers(a, b.tx, b.ty) && a.tilesTo(b) < 14)
-      .sort((p, q) => a.tilesTo(p) - a.tilesTo(q))[0];
+      .filter((b) => b !== a && this.chatAvailable(b) && !b.info.busy && !this.zoneDiffers(a, b.tx, b.ty) && a.tilesTo(b) < 14 + affinity(a, b) * 10)
+      .sort((p, q) => a.tilesTo(p) - affinity(a, p) * 12 - (a.tilesTo(q) - affinity(a, q) * 12))[0];
   }
 
   /** Walks over to someone who's hanging out; the conversation starts when close. */
@@ -1116,7 +1866,7 @@ export class Director {
         g.face(o.x, o.y);
         if (g.traits.sociability > 0.5) {
           g.waveT = 0.9;
-          g.say(pickFrom(GREETINGS, this.rand), 1.8);
+          g.say(pickFrom(greetings(this.hour), this.rand), 1.8);
         } else {
           g.say(pickFrom(SHY_GREETINGS, this.rand), 1.6);
         }
@@ -1127,7 +1877,7 @@ export class Director {
           if (!o.seated && !o.task?.steps[0]?.locked) {
             o.face(g.x, g.y);
           }
-          o.sayLater(pickFrom(GREETINGS, this.rand), 0.5, 1.6);
+          o.sayLater(pickFrom(greetings(this.hour), this.rand), 0.5, 1.6);
         } else {
           o.sayLater(pickFrom(SHY_GREETINGS, this.rand), 0.6, 1.4);
         }
@@ -1146,6 +1896,9 @@ export class Director {
       for (let j = i + 1; j < avail.length; j++) {
         const b = avail[j];
         if (taken.has(b) || a.tilesTo(b) > 2.3 || this.nav.roomOf(a.tx, a.ty) !== this.nav.roomOf(b.tx, b.ty)) {
+          continue;
+        }
+        if ([a, b].some((m) => !m.task?.steps[0]?.chatty && this.passage(m.tx, m.ty))) {
           continue;
         }
         const seeking = a.task?.activity === 'chat' || b.task?.activity === 'chat';
@@ -1189,26 +1942,11 @@ export class Director {
     }
   }
 
-  private idleForGroup(a: Agent): boolean {
+  idleForGroup(a: Agent): boolean {
     return (
-      a.arrived && !a.hidden && !a.locked && !a.conv && !a.leaving && !a.info.busy && !a.info.waiting &&
+      a.arrived && !a.hidden && !a.locked && !a.conv && !a.leaving && !a.npc && !a.info.busy && !a.info.waiting &&
       (!a.task || IDLE_KINDS.includes(a.task.kind)) && a.task?.kind !== 'lunch' && !this.office.isOutdoor(a.tx, a.ty)
     );
-  }
-
-  /** Free meeting seats grouped by the table they face. */
-  private meetingTables(a: Agent): SpotRef[][] {
-    const groups = new Map<number, SpotRef[]>();
-    for (const s of this.office.spotsFor('meeting')) {
-      if (!this.isFree(s.key, a)) {
-        continue;
-      }
-      const [dx, dy] = DIR_STEP[s.facing];
-      const table = this.office.itemAt(s.x + dx, s.y + dy, 'object');
-      const id = table?.uid ?? -s.item.uid;
-      groups.set(id, [...(groups.get(id) ?? []), s]);
-    }
-    return [...groups.values()];
   }
 
   /** When several people are free at once, someone calls a meeting: they gather around a table and talk. */
@@ -1217,70 +1955,51 @@ export class Director {
       return;
     }
     this.meetingAt = this.time + 6;
-    const idle = this.agents.filter((a) => this.idleForGroup(a));
+    const idle = this.agents.filter((a) => this.idleForGroup(a) && !this.staff.meetings.inMeeting(a));
     if (idle.length < 3 || this.rand() > 0.35) {
       return;
     }
-    const tables = this.meetingTables(idle[0]).filter((t) => t.length >= 3).sort((p, q) => q.length - p.length);
-    const seats = tables[0];
-    if (!seats) {
-      return;
-    }
-    const n = Math.min(seats.length, idle.length, 3 + Math.floor(this.rand() * 3));
+    const n = 3 + Math.floor(this.rand() * 3);
     const people = idle
       .map((a) => ({ a, s: urgency(a.needs.social) + a.traits.sociability + this.rand() * 0.6 }))
       .sort((p, q) => q.s - p.s)
       .slice(0, n)
-      .map((x) => x.a)
-      .filter((a) => this.travel.reachable(a, seats[0].x, seats[0].y));
-    if (people.length < 3) {
-      return;
+      .map((x) => x.a);
+    if (this.staff.meetings.social(this, people)) {
+      this.meetingAt = this.time + 150 + this.rand() * 150;
     }
-    this.meetingAt = this.time + 150 + this.rand() * 150;
-    const conv = new Conversation('meeting', people, this.time + 30, this.rand);
-    this.convs.push(conv);
-    people.forEach((a, i) => {
-      const seat = seats[i];
-      this.interrupt(a);
-      a.conv = conv;
-      const route = this.travel.route(a, { x: seat.x, y: seat.y, spot: seat }, 'Going to a meeting') ?? [];
-      a.task = this.task('meeting', 'In a meeting', 'meeting', [
-        ...route,
-        hangout({ seconds: 40, act: 'idle', gains: { social: 0.6, energy: 0.1 }, until: (x) => x.conv === conv && !conv.done }),
-      ]);
-      if (i === 0) {
-        a.say('meeting time!', 2.4);
-      } else if (this.rand() < 0.6) {
-        a.sayLater(pickFrom(['coming!', 'ok!', 'on my way', 'sure'], this.rand), 0.6 + this.rand(), 1.8);
-      }
-    });
   }
 
   /** Lunch is better together: invite a couple of hungry colleagues to nearby seats. */
-  private inviteToLunch(host: Agent, seat: SpotRef): void {
+  private inviteToLunch(host: Agent, seat: FloorSpot): void {
     if (this.time < this.lunchInvites) {
       return;
     }
     this.lunchInvites = this.time + 20;
     const def = ACTIVITY_BY_ID.get('eat')!;
-    const guests = this.agents.filter((b) => b !== host && this.idleForGroup(b) && b.lunchDay !== this.day && b.needs.hunger < 0.75 && host.tilesTo(b) < 20).slice(0, 2);
+    const guests = this.agents
+      .filter((b) => b !== host && this.idleForGroup(b) && b.lunchDay !== this.day && (b.needs.hunger < 0.75 || affinity(host, b) >= FRIEND) && host.tilesTo(b) < 20)
+      .sort((p, q) => affinity(host, q) - affinity(host, p))
+      .slice(0, 2);
     if (!guests.length) {
       return;
     }
     host.say('lunch?', 2);
+    const { d, spot: hostSeat } = seat;
     for (const g of guests) {
-      const spot = this.findSpot(g, def, [seat.x, seat.y]);
-      if (!spot || spot.key === seat.key) {
+      const pick = this.spotsAnywhere(g, def.spots, { near: [hostSeat.x, hostSeat.y], outdoor: def.outdoor }).find((p) => p.d === d && p.spot.key !== hostSeat.key);
+      if (!pick) {
         continue;
       }
-      this.reserved.set(spot.key, g);
-      const task = this.activityTask(g, def, spot);
+      d.reserved.set(pick.spot.key, g);
+      const task = this.activityTask(g, def, pick);
       if (!task) {
-        this.reserved.delete(spot.key);
+        d.reserved.delete(pick.spot.key);
         continue;
       }
       this.interrupt(g);
       g.task = task;
+      bond(host, g, 0.03);
       g.sayLater(pickFrom(['yes!', 'starving', 'sure!', 'yum'], this.rand), 0.7, 1.8);
     }
   }
@@ -1290,6 +2009,20 @@ export class Director {
   private onLayoutChange(): void {
     this.nav.sync();
     const keys = new Set(this.office.spots.map((s) => s.key));
+    const residents = this.staff.agents.filter((a) => a.homeFloor === this);
+    for (const a of residents) {
+      if (a.homeDesk && !keys.has(a.homeDesk)) {
+        a.homeDesk = null;
+      }
+    }
+    for (const project of [...this.projectRooms.keys()]) {
+      const desk = residents.map((a) => (a.info.project === project && a.homeDesk ? this.spotByKey(a.homeDesk) : undefined)).find((s) => s);
+      if (desk) {
+        this.projectRooms.set(project, this.nav.roomOf(desk.x, desk.y));
+      } else {
+        this.projectRooms.delete(project);
+      }
+    }
     for (const [key] of this.reserved) {
       if (!key.startsWith('t:') && !keys.has(key)) {
         this.reserved.delete(key);
@@ -1302,9 +2035,6 @@ export class Director {
       }
     }
     for (const a of this.agents) {
-      if (a.homeDesk && !keys.has(a.homeDesk)) {
-        a.homeDesk = null;
-      }
       if (a.hidden) {
         continue;
       }

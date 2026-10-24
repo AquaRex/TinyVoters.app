@@ -1,4 +1,8 @@
-import { CloudError, claimCode, createHome, deviceToken, forgetDevice, hooksJson, ingestKey, installPrompt, pairCode } from '../cloud/api';
+import {
+  CloudError, approvalsPrompt, awayInfo, claimCode, createHome, deviceToken, forgetDevice, hooksJson, ingestKey, installPrompt, pairCode,
+  revokeVisitorLink, setAway, visitToken, visitorLink,
+} from '../cloud/api';
+import { disablePush, enablePush, pushOn, pushProblem } from '../cloud/push';
 
 type View = 'start' | 'code' | 'home';
 
@@ -28,6 +32,10 @@ export class ConnectDialog {
   }
 
   open(): void {
+    if (visitToken) {
+      this.notify("You're visiting someone's office (read-only)");
+      return;
+    }
     this.view = deviceToken() ? 'home' : 'start';
     this.root.hidden = false;
     this.render();
@@ -136,6 +144,22 @@ export class ConnectDialog {
          <p>Your phone, your Mac's browser… Each device joins once and stays connected.</p>
          <div class="cn-pair"></div>
        </section>
+       <section>
+         <h3>Phone alerts</h3>
+         <div class="cn-push"></div>
+       </section>
+       <section>
+         <h3>Visitor link</h3>
+         <p>A read-only view for friends: they see who's busy or waiting, never what Claude is doing, your projects or your chats.</p>
+         <div class="cn-actions"><button data-act="visit">Copy visitor link</button><button data-act="unvisit">Revoke link</button></div>
+       </section>
+       <section>
+         <h3>Away mode</h3>
+         <p>Approve or deny Claude's permission requests from here. While it's on, <b>any paired device can approve tool use on your computers</b>, and Claude waits up to 10 minutes for that answer before asking at the computer. Off by default.</p>
+         <div class="cn-row"><div class="cn-seg" data-toggle="away"><button data-v="off">Off</button><button data-v="on">On</button></div></div>
+         <p class="cn-small">Each computer needs the approvals hook once (Node 18+): paste this prompt into Claude Code there, or run <code>npm run install-hooks -- &lt;computer key&gt; --approvals</code>.</p>
+         <div class="cn-actions"><button data-act="approvals">Copy approvals setup prompt</button></div>
+       </section>
        <button class="cn-link danger" data-act="forget">Disconnect this device</button>`,
     );
     box.querySelectorAll<HTMLButtonElement>('[data-os]').forEach((b) => {
@@ -174,6 +198,80 @@ export class ConnectDialog {
       }
     });
     this.renderPair(box.querySelector('.cn-pair')!);
+    this.renderExtras(box, copy);
+  }
+
+  /** Phone alerts, visitor link and away mode. */
+  private renderExtras(box: HTMLElement, copy: (text: () => Promise<string>, done: string) => Promise<void>): void {
+    const fail = (e: unknown) => this.notify(e instanceof CloudError ? e.message : 'Could not reach the office');
+    box.querySelector('[data-act="approvals"]')!.addEventListener('click', () =>
+      copy(async () => approvalsPrompt(await ingestKey()), 'Approvals prompt copied: paste it into Claude Code'),
+    );
+    box.querySelector('[data-act="visit"]')!.addEventListener('click', () =>
+      copy(async () => `${location.origin}${location.pathname}?visit=${await visitorLink()}`, 'Visitor link copied'),
+    );
+    box.querySelector('[data-act="unvisit"]')!.addEventListener('click', async () => {
+      if (confirm('Revoke the visitor link? Anyone using it loses access. A new link can be made any time.')) {
+        await revokeVisitorLink().then(() => this.notify('Visitor link revoked'), fail);
+      }
+    });
+
+    const away = this.toggle(box, 'away', async (on) => {
+      if (on && !confirm('Turn on away mode? Any paired device can then approve tool use on your computers.')) {
+        return false;
+      }
+      await setAway(on);
+      this.notify(on ? 'Away mode on' : 'Away mode off');
+    });
+    awayInfo().then((i) => away.set(i.away), fail);
+
+    const push = box.querySelector<HTMLElement>('.cn-push')!;
+    const problem = pushProblem();
+    if (problem === 'missing-setup') {
+      push.innerHTML = `<p class="cn-small">Phone alerts aren't set up for this site yet: it needs push keys and the <code>tiny-push</code> function. See <b>docs/CLAUDE_INTEGRATION.md → Phone alerts</b>.</p>`;
+      return;
+    }
+    if (problem === 'unsupported') {
+      push.innerHTML = `<p class="cn-small">This browser can't receive alerts. On iPhone or iPad, tap Share → <b>Add to Home Screen</b>, open Tiny Agents from there, then turn alerts on here.</p>`;
+      return;
+    }
+    push.innerHTML = `<p>A notification on this device when someone needs your permission, or finishes a long task. Works with the app closed.</p>
+      <div class="cn-row"><div class="cn-seg" data-toggle="push"><button data-v="off">Off</button><button data-v="on">On</button></div></div>`;
+    const alerts = this.toggle(push, 'push', async (on) => {
+      await (on ? enablePush() : disablePush());
+      this.notify(on ? 'Alerts on for this device' : 'Alerts off for this device');
+    });
+    pushOn().then((on) => alerts.set(on), () => alerts.set(false));
+  }
+
+  /** An Off/On segment; `change` returns false to cancel. Disabled until its current value is known. */
+  private toggle(root: HTMLElement, name: string, change: (on: boolean) => Promise<boolean | void>): { on: () => boolean; set: (on: boolean) => void } {
+    const buttons = root.querySelectorAll<HTMLButtonElement>(`[data-toggle="${name}"] button`);
+    let value = false;
+    const set = (on: boolean) => {
+      value = on;
+      buttons.forEach((b) => {
+        b.disabled = false;
+        b.classList.toggle('on', (b.dataset.v === 'on') === on);
+      });
+    };
+    buttons.forEach((b) => {
+      b.disabled = true;
+      b.addEventListener('click', async () => {
+        const on = b.dataset.v === 'on';
+        if (on === value) {
+          return;
+        }
+        try {
+          if ((await change(on)) !== false) {
+            set(on);
+          }
+        } catch (e) {
+          this.notify(e instanceof CloudError ? e.message : e instanceof Error ? e.message : 'Could not reach the office');
+        }
+      });
+    });
+    return { on: () => value, set };
   }
 
   private renderPair(el: HTMLElement): void {

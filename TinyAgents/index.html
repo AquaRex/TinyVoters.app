@@ -24,8 +24,14 @@
       <button id="office" class="pill" data-state="connecting" title="Connect Claude Code">Connecting…</button>
       <span class="spacer"></span>
       <button id="demoBtn" title="Fill the office with built-in demo staff">Demo staff</button>
-      <button id="timeBtn" title="Follow your local clock, or keep it a sunny afternoon">Clock</button>
+      <span class="time-ctl">
+        <button id="timeBtn" title="Follow your local clock, or pick a time of day">Clock</button>
+        <label id="timeSlider">
+          <input type="range" min="0" max="23.75" step="0.25" aria-label="Time of day" />
+        </label>
+      </span>
       <button id="modeBtn">Edit office</button>
+      <button id="settingsBtn" title="Alerts, sound, music, ambient mode and day replay">Settings</button>
       <button id="helpBtn" aria-label="Help">?</button>
     </header>
 
@@ -34,6 +40,7 @@
       <button id="zoomIn" aria-label="Zoom in">+</button>
       <button id="zoomOut" aria-label="Zoom out">&minus;</button>
     </div>
+    <nav id="floorSwitch" aria-label="Floors" hidden></nav>
     <aside id="agentPanel" hidden></aside>
     <section id="editor" hidden></section>
 
@@ -68,6 +75,31 @@
         <li><b>Add a device</b>: join from your phone or other browsers with a code</li>
       </ol>
       <p>Click a Claude agent to follow what it's doing and read the conversation. Reply in VS Code, or from your phone with Remote Control in the Claude app.</p>
+    </div>
+
+    <div id="settings" hidden>
+      <button class="close" aria-label="Close settings">&times;</button>
+      <h2>Settings</h2>
+      <div class="st-row">
+        <div><b>Alerts</b><small>Notify me when an agent needs me or finishes a long turn. <span class="st-alert-note"></span> <button class="cn-link" data-act="testAlert">Send a test</button></small></div>
+        <button data-set="alerts">Off</button>
+      </div>
+      <div class="st-row">
+        <div><b>Sound</b><small>Chimes for permission and finished turns, keyboard clacks while people type.</small></div>
+        <button data-set="sound">Off</button>
+      </div>
+      <div class="st-row">
+        <div><b>Music</b><small>A soft lo-fi loop, made up as it plays.</small><input type="range" min="0" max="100" data-set="volume" aria-label="Music volume" /></div>
+        <button data-set="music">Off</button>
+      </div>
+      <div class="st-row">
+        <div><b>Ambient mode</b><small>Hides the interface and follows whoever is most interesting. <kbd>F</kbd> to start, any key or click to leave.</small><label class="st-check"><input type="checkbox" data-set="fullscreen" /> Go fullscreen</label></div>
+        <button data-act="ambient">Start</button>
+      </div>
+      <div class="st-row">
+        <div><b>Replay today</b><small>Watch the day so far on a timeline, sped up.</small></div>
+        <button data-act="replay">Replay</button>
+      </div>
     </div>
 
     <div id="toast" role="status"></div>

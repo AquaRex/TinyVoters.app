@@ -5,12 +5,19 @@ import {
   TOP_STYLES, randomAppearance,
 } from '../agents/appearance';
 import { demoIdentity } from '../agents/demo';
+import { friendsOf } from '../agents/relationships';
+import { app } from '../app';
 import { NEED_IDS, NEED_LABELS } from '../agents/needs';
 import { forgetPerson, generatedPerson, savePerson } from '../agents/people';
 import { POSES, POSE_FRAMES, Pose, characterFrame } from '../render/characters';
+import { careerFor, statsState } from '../stats/stats';
+import { CloudError, decideApproval, visitToken } from '../cloud/api';
 import { ChatView } from './chat';
 import { claudeBadge } from './roster';
 import type { AgentInfo } from '../agents/agent';
+import { npcShift } from '../agents/buildingStaff';
+import { teamKey, teamName } from '../agents/labels';
+import { renameInline } from '../features/plaques';
 
 const DIRS: Dir[] = ['down', 'left', 'up', 'right'];
 const POSE_FPS: Partial<Record<Pose, number>> = { walk: 10, carry: 10, type: 7, wave: 6, talk: 5, sitTalk: 5, stand: 1.6, phone: 3, read: 1.5 };
@@ -72,9 +79,44 @@ export class AgentPanel {
     a.setPerson({ ...a.person });
   }
 
+  /** Building staff: who they are and their shift, nothing to customize. */
+  private renderNpc(a: Agent): void {
+    this.root.innerHTML = `
+      <div class="ap-head">
+        <div class="ap-preview"><canvas class="pix" width="32" height="48"></canvas>
+          <div class="ap-turn"><button data-turn="-1" aria-label="Turn left">&#9664;</button><button data-pose aria-label="Change pose">pose</button><button data-turn="1" aria-label="Turn right">&#9654;</button></div>
+        </div>
+        <div class="ap-id">
+          <div class="ap-name" style="border:0">${escapeHtml(a.name)}</div>
+          <div class="ap-role"><i style="background:${a.role.badge}"></i>${escapeHtml(a.role.title)}</div>
+          <div class="ap-status"></div>
+          <div class="ap-meta">Building staff · works ${escapeHtml(npcShift(a.id))}</div>
+        </div>
+        <button class="ap-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="ap-note">${escapeHtml(a.name)} works for the building, not on a team: keeps office hours and comes and goes by the front door.</p>`;
+    this.preview = this.root.querySelector('.ap-preview canvas')!;
+    this.root.querySelector('.ap-close')!.addEventListener('click', () => this.close());
+    this.root.querySelectorAll<HTMLButtonElement>('[data-turn]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.previewDir = (this.previewDir + Number(b.dataset.turn) + 4) % 4;
+      }),
+    );
+    this.root.querySelector('[data-pose]')!.addEventListener('click', () => {
+      this.previewPose = POSES[(POSES.indexOf(this.previewPose) + 1) % POSES.length];
+      this.t = 0;
+    });
+    this.tick(0);
+  }
+
   private render(): void {
     const a = this.agent!;
+    if (a.npc) {
+      this.renderNpc(a);
+      return;
+    }
     const look = a.person.look;
+    const team = teamKey(a);
     const who = a.claude
       ? a.info.kind === 'main'
         ? 'Main session'
@@ -89,12 +131,14 @@ export class AgentPanel {
           <input class="ap-name" maxlength="16" value="${escapeHtml(a.name)}" aria-label="Name" />
           <div class="ap-role"><i style="background:${a.role.badge}"></i>${escapeHtml(a.role.title)}</div>
           <div class="ap-status"></div>
-          <div class="ap-meta">${escapeHtml(who)}${a.info.project ? ` · ${escapeHtml(a.info.project)}` : ''}</div>
+          <div class="ap-meta">${escapeHtml(who)}${team ? ` · <span class="ap-team"><span class="ap-team-name">${escapeHtml(teamName(a))}</span>${visitToken ? '' : '<button class="ap-rename" aria-label="Rename team" title="Rename this team">rename</button>'}</span>` : ''}</div>
+          <div class="ap-meta ap-friends"></div>
         </div>
         <button class="ap-close" aria-label="Close">&times;</button>
       </div>
       ${a.claude ? '<div class="ap-claude"></div>' : ''}
       <div class="ap-needs" style="margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;font-size:13px"></div>
+      ${a.isSub ? '' : `<div class="ap-career">${careerSection(a)}</div>`}
       <div class="ap-rows"></div>
       <div class="ap-foot">
         <button data-act="follow" class="${this.follow ? 'on' : ''}">Follow</button>
@@ -103,7 +147,7 @@ export class AgentPanel {
       </div>
       <p class="ap-note">${
         a.claude
-          ? `Looks are saved for the <b>${escapeHtml(a.role.title)}</b> seat #${Number(a.slot.split('#')[1]) + 1}, so this person comes back looking the same next session.`
+          ? `Looks and desk are saved for ${a.isSub ? `this lead's <b>${escapeHtml(a.info.type)}</b> helper on ` : ''}<b>${escapeHtml(a.info.project)}</b>${a.info.machine ? ` on ${escapeHtml(a.info.machine)}` : ''}, so this person comes back the same next session.`
           : `${escapeHtml(a.name)} is built-in demo staff; their look is saved too.`
       }</p>`;
     this.preview = this.root.querySelector('.ap-preview canvas')!;
@@ -111,13 +155,27 @@ export class AgentPanel {
       this.root.querySelector('.ap-role')!.append(claudeBadge());
     }
 
-    if (a.claude) {
+    if (a.claude && !visitToken) {
       if (this.chat?.agentId !== a.info.id) {
         this.chat?.stop();
         this.chat = new ChatView(a.info.id);
       }
       this.root.querySelector('.ap-claude')!.after(this.chat.el);
     }
+    this.root.querySelector('.ap-claude')?.addEventListener('click', async (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-approve]');
+      if (!b || !a.info.approval) {
+        return;
+      }
+      b.disabled = true;
+      const allow = b.dataset.approve === 'allow';
+      try {
+        await decideApproval(a.info.approval.id, allow);
+        app.toast(allow ? 'Approved' : 'Denied');
+      } catch (err) {
+        app.toast(err instanceof CloudError ? err.message : 'Could not reach the office');
+      }
+    });
 
     const needs = this.root.querySelector('.ap-needs')!;
     for (const id of NEED_IDS) {
@@ -183,6 +241,11 @@ export class AgentPanel {
     }
 
     this.root.querySelector('.ap-close')!.addEventListener('click', () => this.close());
+    this.root.querySelector('.ap-rename')?.addEventListener('click', (e) => {
+      const r = (e.target as HTMLElement).getBoundingClientRect();
+      const lead = a.info.parent ? app.agents.find((o) => o.id === a.info.parent) ?? a : a;
+      renameInline(team!, teamName(a), lead.info.project, r.left + 60, r.bottom + 14, () => this.agent === a && this.render());
+    });
     this.root.querySelector<HTMLInputElement>('.ap-name')!.addEventListener('change', (e) => {
       a.person.name = (e.target as HTMLInputElement).value.trim() || a.person.name;
       this.save();
@@ -235,6 +298,11 @@ export class AgentPanel {
     const ctx = this.preview.getContext('2d')!;
     ctx.clearRect(0, 0, 32, 48);
     ctx.drawImage(img, 0, 0);
+    const friends = this.root.querySelector('.ap-friends');
+    if (friends) {
+      const names = friendsOf(a, app.agents).slice(0, 4).map((f) => f.name);
+      friends.textContent = names.length ? `Friends: ${names.join(', ')}` : 'Still making friends';
+    }
     const status = this.root.querySelector('.ap-status');
     if (status) {
       status.textContent = a.statusText;
@@ -289,10 +357,40 @@ function claudeSection(i: AgentInfo): string {
   return `
     <div class="ap-cl-state" data-state="${state}"><i></i>${escapeHtml(STATE_LABEL[state] ?? state)}${i.stateFor !== undefined ? ` <small>${ago(i.stateFor)}</small>` : ''}</div>
     ${doing ? `<div class="ap-cl-doing">${escapeHtml(doing)}</div>` : ''}
+    ${i.approval ? approvalSection(i.approval) : ''}
     ${i.title || i.description ? `<div class="ap-cl-task">${escapeHtml(i.title ?? i.description ?? '')}</div>` : ''}
     ${state === 'error' && i.error ? `<div class="ap-cl-error">${escapeHtml(i.error.replace(/_/g, ' '))}</div>` : ''}
     ${facts.length ? `<div class="ap-cl-facts">${escapeHtml(facts.join(' · '))}</div>` : ''}
     ${recent ? `<ul class="ap-cl-recent">${recent}</ul>` : ''}`;
+}
+
+/** Away mode: answer this permission request from here. */
+function approvalSection(r: NonNullable<AgentInfo['approval']>): string {
+  return `<div class="ap-cl-doing">Asks to use ${escapeHtml(r.tool)}${r.detail ? `: <code>${escapeHtml(r.detail)}</code>` : ''}</div>
+    <div class="ap-foot"><button data-approve="allow" class="on">Approve</button><button data-approve="deny">Deny</button></div>`;
+}
+
+function sinceDate(day: string): string {
+  const [y, m, d] = day.slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Lifetime numbers for this computer + project (demo staff: the local tracker). */
+function careerSection(a: Agent): string {
+  const c = careerFor(a);
+  if (!c) {
+    const err = a.demo ? null : statsState().error;
+    return `<h3>Career</h3><p class="ap-note" style="margin:0">${err ? `Career unavailable: ${escapeHtml(err)}` : 'First day on the job.'}</p>`;
+  }
+  const rows: [string, string][] = [
+    ['Days worked', String(c.daysWorked)],
+    ['Sessions', String(c.sessions)],
+    ['Turns', String(c.turns)],
+    ['Tool calls', String(c.toolCalls)],
+    ['Top tool', c.topTool ?? '–'],
+  ];
+  return `<h3>Career <small style="color:var(--muted);font-weight:normal">since ${escapeHtml(sinceDate(c.firstSeen))}</small></h3>
+    <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`;
 }
 
 function escapeHtml(s: string): string {

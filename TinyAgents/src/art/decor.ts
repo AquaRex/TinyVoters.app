@@ -143,6 +143,7 @@ defineAsset({
   group: 'plant.tall',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['plant', 'tree', 'green', 'fiddle'],
   build() {
@@ -180,6 +181,7 @@ defineAsset({
   group: 'plant.tall',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['plant', 'green', 'monstera', 'swiss cheese'],
   build() {
@@ -231,6 +233,7 @@ defineAsset({
   group: 'plant.tall',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['plant', 'palm', 'green'],
   build() {
@@ -276,6 +279,7 @@ defineAsset({
   group: 'plant.small',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['plant', 'small', 'green'],
   build() {
@@ -300,6 +304,7 @@ defineAsset({
   group: 'plant.small',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['plant', 'small', 'snake plant', 'sansevieria'],
   build() {
@@ -329,6 +334,7 @@ defineAsset({
   group: 'planter',
   category: 'Decor',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['planter', 'plants', 'divider', 'green'],
   build() {
@@ -484,6 +490,7 @@ RUGS.forEach(([id, name, w, h, field, accent, pattern, group], i) => {
     group,
     category: 'Decor',
     layer: 'floor',
+    placement: 'free',
     facings: ['down'],
     keywords: ['rug', 'carpet', 'floor'],
     build: rug(w, h, field, accent, pattern, i),
@@ -505,6 +512,7 @@ defineAsset({
   group: 'mat',
   category: 'Decor',
   layer: 'floor',
+  placement: 'free',
   facings: ['down'],
   keywords: ['mat', 'doormat', 'entrance', 'welcome'],
   build() {
@@ -567,6 +575,7 @@ defineAsset({
   group: 'lamp.floor',
   category: 'Lighting',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['lamp', 'light', 'floor lamp', 'warm'],
   build() {
@@ -599,6 +608,7 @@ defineAsset({
   group: 'lamp.floor',
   category: 'Lighting',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['lamp', 'light', 'floor lamp', 'tripod', 'warm'],
   build() {
@@ -832,6 +842,7 @@ defineAsset({
   group: 'coatrack',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['coat', 'rack', 'hat', 'stand', 'entrance'],
   build() {
@@ -890,6 +901,7 @@ defineAsset({
   group: 'bin',
   category: 'Decor',
   layer: 'object',
+  placement: 'corner',
   facings: ['down'],
   keywords: ['bin', 'trash', 'waste', 'basket'],
   build() {

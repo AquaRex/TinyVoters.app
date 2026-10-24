@@ -360,6 +360,19 @@ function rig(view: View, pose: Pose, f: number, smiling: boolean): Rig {
 
 // ---------------------------------------------------------------- entry
 
+/** How far (px) the head sits below its standing rest position in a frame: seated, walk bob, breathing, build. */
+export function headLift(look: Appearance, pose: Pose, frame: number): number {
+  const n = POSE_FRAMES[pose] ?? 1;
+  const f = ((Math.floor(frame) % n) + n) % n;
+  let u = SEATED.has(pose) ? 3 : 0;
+  if (pose === 'walk' || pose === 'carry') {
+    u = WALK_BOB[f];
+  } else if (pose === 'stand') {
+    u = f === 1 || f === 2 ? 1 : 0;
+  }
+  return u + (look.build === 'short' ? 1 : look.build === 'tall' ? -1 : 0);
+}
+
 export function characterFrame(look: Appearance, dir: Dir, pose: Pose, frame: number, opts?: FrameOpts | boolean): HTMLCanvasElement {
   const o: FrameOpts = typeof opts === 'boolean' ? { smiling: opts } : opts ?? {};
   const n = POSE_FRAMES[pose] ?? 1;

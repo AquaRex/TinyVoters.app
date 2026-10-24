@@ -62,6 +62,7 @@ export function walkTo(d: Director, target: Target, status?: string): Step {
       }
       if (a.seated) {
         if (sit && a.tx === target.x && a.ty === target.y) {
+          exit = d.exitTile(a);
           phase = 'sit';
           return;
         }
@@ -105,10 +106,18 @@ export function walkTo(d: Director, target: Target, status?: string): Step {
           if (!arrived) {
             return false;
           }
+          if (d.givingWay(a)) {
+            a.moving = false;
+            a.face(a.x + (target.x - a.tx), a.y + (target.y - a.ty));
+            return false;
+          }
           const there = a.tx === target.x && a.ty === target.y;
           const adjacent = Math.abs(a.tx - target.x) + Math.abs(a.ty - target.y) === 1;
           if (sit && (there || adjacent)) {
-            exit = [a.tx, a.ty];
+            if (there) {
+              a.seatExit = null;
+            }
+            exit = there ? d.exitTile(a) : [a.tx, a.ty];
             phase = 'sit';
             return false;
           }
@@ -214,6 +223,11 @@ export function hangout(o: HangoutOpts): Step {
   };
 }
 
+/** Ends a step early (e.g. a walk that no longer has a reason) once `stop` holds. */
+export function unless(step: Step, stop: (a: Agent) => boolean): Step {
+  return { ...step, tick: (a, dt) => stop(a) || step.tick(a, dt) };
+}
+
 export function pause(seconds: number, status?: string, locked = false): Step {
   let t = seconds;
   return {
@@ -221,6 +235,20 @@ export function pause(seconds: number, status?: string, locked = false): Step {
     locked,
     tick(_a, dt) {
       return (t -= dt) <= 0;
+    },
+  };
+}
+
+/**
+ * Plans the next steps only when reached, then runs them in its place: for plans that depend on where the agent is
+ * by then, like the way back after changing floors (`build` runs on that floor's terms). Null plans nothing.
+ */
+export function defer(build: (a: Agent) => Step[] | null): Step {
+  return {
+    locked: true,
+    tick(a) {
+      a.task?.steps.splice(1, 0, ...(build(a) ?? []));
+      return true;
     },
   };
 }

@@ -26,6 +26,9 @@ export interface AgentView {
   profession: { title: string; badge: string };
   statusText: string;
   info: { waiting: boolean };
+  /** tile being stepped into and the walk ahead: doors open only for people passing through */
+  seg: readonly [number, number] | null;
+  path: readonly (readonly [number, number])[];
   currentFrame(): HTMLCanvasElement;
   spriteOrigin(): [number, number];
   hitTest(wx: number, wy: number): boolean;
@@ -42,7 +45,28 @@ export interface CarView {
 
 export type Overlay = (ctx: CanvasRenderingContext2D) => void;
 
-interface Rect {
+/** A storey drawn beneath the one on screen (the ground floor's outdoors, the façades of the floors below). */
+export interface Underlay<A> {
+  /** px it's drawn higher than the ground (level × STOREY_H) */
+  lift: number;
+  office: Office;
+  agents: readonly A[];
+  cars: Iterable<CarView>;
+  layers: readonly RenderLayer[];
+  liftOpen: (uid: number) => number;
+}
+
+/** Extra drawing contributed by features (director extensions). All hooks are optional. */
+export interface RenderLayer {
+  /** World-space drawables depth-sorted with items and agents; `key` is a foot y in world px. */
+  drawables?(view: Rect, push: (key: number, draw: (ctx: CanvasRenderingContext2D) => void) => void): void;
+  /** World space, after day/night lighting (weather, particles, glowing signs). */
+  afterLighting?(ctx: CanvasRenderingContext2D, view: Rect): void;
+  /** Screen space (device px) after speech bubbles; `toScreen` maps world px to device px, `scale` is device px per world px. */
+  screen?(ctx: CanvasRenderingContext2D, toScreen: (wx: number, wy: number) => [number, number], scale: number): void;
+}
+
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -106,6 +130,8 @@ export class Renderer<A extends AgentView = AgentView> {
 
   private floor = new FloorLayer();
   private builtVersion = -1;
+  /** each floor is its own Office: switching floors rebuilds even when versions match */
+  private builtFor: Office | null = null;
   private geoms = new Map<number, WallGeom>();
   private walls: WallSprite[] = [];
   private wallCache = new Map<string, WallSprite>();
@@ -117,8 +143,18 @@ export class Renderer<A extends AgentView = AgentView> {
   private last = performance.now();
   private worldW = 0;
   private worldH = 0;
+  /** px this floor is drawn higher than the ground (level × STOREY_H); screen mapping and input include it */
+  lift = 0;
+  /** draw the storeys below, sharing this canvas and camera */
+  private belows: Renderer<A>[] = [];
+  /** an underlay above the ground: draws over the storeys below instead of clearing the canvas */
+  private stacked = false;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    /** an underlay renderer: leaves feature effects and the hover label to the floor on top */
+    private underlay = false,
+  ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
   }
@@ -163,7 +199,7 @@ export class Renderer<A extends AgentView = AgentView> {
 
   private get origin(): [number, number] {
     const s = this.scale;
-    return [Math.round(this.canvas.width / 2 - this.camera.x * s), Math.round(this.canvas.height / 2 - this.camera.y * s)];
+    return [Math.round(this.canvas.width / 2 - this.camera.x * s), Math.round(this.canvas.height / 2 - (this.camera.y + this.lift) * s)];
   }
 
   screenToWorld(sx: number, sy: number): [number, number] {
@@ -213,6 +249,10 @@ export class Renderer<A extends AgentView = AgentView> {
         office.wallAt(g.x - 1, g.y),
         office.wallAt(g.x, g.y),
         office.wallAt(g.x + 1, g.y),
+        office.floorAt(g.x - 1, g.y),
+        office.floorAt(g.x + 1, g.y),
+        office.floorAt(g.x, g.y - 1),
+        office.floorAt(g.x, g.y + 1),
         g.x,
         g.y,
         g.ax,
@@ -287,7 +327,8 @@ export class Renderer<A extends AgentView = AgentView> {
       return frames[0] ?? [];
     }
     if (v.anim.kind === 'loop') {
-      return frames[Math.floor(this.time * (v.anim.fps ?? 4)) % frames.length];
+      const phase = v.anim.desync ? item.x * 7 + item.y * 13 : 0;
+      return frames[(Math.floor(this.time * (v.anim.fps ?? 4)) + phase) % frames.length];
     }
     const open = def.door ? this.doorOpen.get(item.uid) ?? 0 : this.liftOpen(item.uid);
     return frames[Math.round(Math.max(0, Math.min(1, open)) * (frames.length - 1))];
@@ -300,14 +341,11 @@ export class Renderer<A extends AgentView = AgentView> {
         continue;
       }
       const { item, v } = view;
-      const near = agents.some((a) => {
-        if (a.alpha <= 0) {
-          return false;
-        }
-        const tx = Math.floor(a.x / TILE);
-        const ty = Math.floor(a.y / TILE);
-        return tx >= item.x - 1 && tx <= item.x + v.w && ty >= item.y - 1 && ty <= item.y + v.h;
-      });
+      const inDoor = (t: readonly [number, number] | null | undefined) =>
+        !!t && t[0] >= item.x && t[0] < item.x + v.w && t[1] >= item.y && t[1] < item.y + v.h;
+      const near = agents.some(
+        (a) => a.alpha > 0 && (inDoor([Math.floor(a.x / TILE), Math.floor(a.y / TILE)]) || inDoor(a.seg) || inDoor(a.path[0]) || inDoor(a.path[1])),
+      );
       const cur = this.doorOpen.get(item.uid) ?? 0;
       this.doorOpen.set(item.uid, near ? Math.min(1, cur + dt * DOOR_SPEED) : Math.max(0, cur - dt * DOOR_SPEED * 0.7));
     }
@@ -350,12 +388,18 @@ export class Renderer<A extends AgentView = AgentView> {
     }
   }
 
-  render(office: Office, agents: readonly A[], cars: Iterable<CarView>, overlay?: Overlay): void {
+  /**
+   * Draws a floor, `lift` px up. `under` lists the storeys below (ground first), drawn first at their own lifts, so
+   * each storey's south façade shows beneath the one above; tiles without floor here stay see-through, so the
+   * street and the park show around an upper storey.
+   */
+  render(office: Office, agents: readonly A[], cars: Iterable<CarView>, overlay?: Overlay, layers: readonly RenderLayer[] = [], under: Underlay<A>[] = []): void {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     this.time += dt;
-    if (this.builtVersion !== office.version) {
+    if (this.builtVersion !== office.version || this.builtFor !== office) {
+      this.builtFor = office;
       this.rebuild(office);
     }
     this.updateDoors(agents, dt);
@@ -367,8 +411,21 @@ export class Renderer<A extends AgentView = AgentView> {
     const [tx, ty] = this.origin;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = VOID;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    under.forEach((u, i) => {
+      const below = (this.belows[i] ??= new Renderer<A>(canvas, true));
+      below.camera = this.camera;
+      below.lift = u.lift;
+      below.stacked = i > 0;
+      below.lighting.fixedHour = this.lighting.fixedHour;
+      below.lighting.forcedHour = this.lighting.forcedHour;
+      below.liftOpen = u.liftOpen;
+      below.render(u.office, u.agents, u.cars, undefined, u.layers);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    });
+    if (!under.length && !this.stacked) {
+      ctx.fillStyle = VOID;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.setTransform(s, 0, 0, s, tx, ty);
     ctx.imageSmoothingEnabled = s < 1;
 
@@ -446,12 +503,18 @@ export class Renderer<A extends AgentView = AgentView> {
         });
       }
     }
+    for (const layer of layers) {
+      layer.drawables?.(view, (key, draw) => list.push({ key, draw: () => draw(ctx) }));
+    }
     list.sort((p, q) => p.key - q.key);
     for (const d of list) {
       d.draw();
     }
 
     this.lighting.composite(ctx);
+    for (const layer of this.underlay ? [] : layers) {
+      layer.afterLighting?.(ctx, view);
+    }
 
     if (this.showGrid) {
       this.drawGrid(office);
@@ -461,6 +524,10 @@ export class Renderer<A extends AgentView = AgentView> {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (const a of agents) {
       this.drawBubble(a, tx, ty, s);
+    }
+    const toScreen = (wx: number, wy: number): [number, number] => [wx * s + tx, wy * s + ty];
+    for (const layer of this.underlay ? [] : layers) {
+      layer.screen?.(ctx, toScreen, s);
     }
     const label = this.hovered ?? this.selected;
     if (label && label.alpha > 0) {

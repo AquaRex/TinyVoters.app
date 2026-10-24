@@ -135,6 +135,7 @@ for (const [id, name, ramp] of [
     group: 'chair.office',
     category: 'Work',
     layer: 'object',
+    placement: 'free',
     facings: ALL_DIRS,
     keywords: ['chair', 'seat', 'office', 'desk chair'],
     build: officeChair(ramp),
@@ -478,6 +479,7 @@ for (const [id, name, wood, gear, focal, seed] of [
     group: 'desk',
     category: 'Work',
     layer: 'object',
+    placement: 'free',
     facings: ALL_DIRS,
     keywords: ['desk', 'monitor', 'computer', 'workstation', 'laptop'],
     build: desk(wood, gear, focal, seed),
@@ -624,13 +626,13 @@ function bookshelf(ramp: Ramp, shift: number, seed: number): (facing: Dir) => Va
       return mirrorVariant(bookshelf(ramp, shift, seed)('left'));
     }
     if (facing === 'left') {
-      const parts = single(area(1, 2, 40), 64, (p) => bookshelfSide(p, wood, seed));
+      const parts = single(area(1, 2, 40), 64, (p) => bookshelfSide(p, wood, seed)).map((part) => ({ ...part, x: part.x + 2 }));
       return makeVariant({
         w: 1,
         h: 2,
         parts,
         spots: [stand(-1, 0, 'right', 'read', 0, 16)],
-        shadows: [shadow(12, 6, 18, 56, 'rect')],
+        shadows: [shadow(14, 6, 16, 56, 'rect')],
       });
     }
     const parts = single(area(2, 1, 40), 32, (p) => bookshelfFront(p, wood, seed));
@@ -647,6 +649,7 @@ defineAsset({
   group: 'bookshelf',
   category: 'Work',
   layer: 'object',
+  placement: 'wall',
   facings: ['down', 'left', 'right'],
   keywords: ['bookshelf', 'books', 'shelf', 'library'],
   build: bookshelf(oak, 1, 3),
@@ -658,6 +661,7 @@ defineAsset({
   group: 'bookshelf',
   category: 'Work',
   layer: 'object',
+  placement: 'wall',
   facings: ['down', 'left', 'right'],
   keywords: ['bookshelf', 'books', 'shelf', 'library'],
   build: bookshelf(walnut, 0, 6),
@@ -672,6 +676,7 @@ defineAsset({
   group: 'cabinet',
   category: 'Work',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['cabinet', 'filing', 'drawers', 'storage'],
   build() {
@@ -702,6 +707,7 @@ defineAsset({
   group: 'printer',
   category: 'Work',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['printer', 'copier', 'print'],
   build() {
@@ -794,6 +800,7 @@ defineAsset({
   group: 'whiteboard',
   category: 'Work',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['whiteboard', 'board', 'brainstorm'],
   build() {
@@ -831,6 +838,7 @@ defineAsset({
   group: 'reception',
   category: 'Work',
   layer: 'object',
+  placement: 'free',
   facings: ['down'],
   keywords: ['reception', 'front desk', 'counter', 'lobby'],
   build() {
@@ -927,6 +935,7 @@ defineAsset({
   group: 'divider',
   category: 'Work',
   layer: 'object',
+  placement: 'free',
   facings: ['down', 'left'],
   keywords: ['planter', 'divider', 'plants', 'green'],
   build(facing) {
@@ -964,6 +973,7 @@ function surfaceItem(id: string, name: string, keywords: string[], draw: (p: Pen
     group: id,
     category: 'Work',
     layer: 'surface',
+    placement: 'free',
     facings: ['down'],
     keywords,
     build() {

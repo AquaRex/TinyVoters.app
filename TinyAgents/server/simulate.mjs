@@ -1,13 +1,16 @@
 // Fakes a few Claude Code sessions (with subagents) by posting hook events to your office.
 // Handy for watching the office without running real agents. Ctrl+C ends all fake sessions.
-//   npm run simulate -- <computer key> [sessions]
+//   npm run simulate -- <computer key> [sessions] [computers]
+// With several computers, sessions are spread across "Sim PC 1", "Sim PC 2"… (one office floor each), and each
+// computer works on a few projects so sessions share project rooms.
 const SUPABASE_URL = 'https://hchyekrxubzuqrnlckpm.supabase.co';
 const ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaHlla3J4dWJ6dXFybmxja3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjI3NDIsImV4cCI6MjA5OTgzODc0Mn0.IIfUjrwSEnrAzPuRrCUblli2fJ7dYJssj7jE-526OxE';
 const KEY = process.argv[2];
 const SESSIONS = Number(process.argv[3] ?? 3);
+const MACHINES = Math.max(1, Number(process.argv[4] ?? 1));
 if (!/^[0-9a-f]{64}$/.test(KEY ?? '')) {
-  console.error('Usage: npm run simulate -- <computer key> [sessions]');
+  console.error('Usage: npm run simulate -- <computer key> [sessions] [computers]');
   process.exit(1);
 }
 
@@ -36,13 +39,16 @@ const toolCall = () => {
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const between = (lo, hi) => lo + Math.random() * (hi - lo);
-const live = new Set();
+/** session id -> computer name */
+const live = new Map();
 let counter = 0;
 
-async function post(evt) {
+const machineName = (slot) => (MACHINES > 1 ? `Sim PC ${(slot % MACHINES) + 1}` : 'Simulator');
+
+async function post(evt, machine) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/tiny_ingest`, {
     method: 'POST',
-    headers: { apikey: ANON_KEY, 'content-type': 'application/json', 'x-tiny-key': KEY, 'x-tiny-machine': 'Simulator' },
+    headers: { apikey: ANON_KEY, 'content-type': 'application/json', 'x-tiny-key': KEY, 'x-tiny-machine': machine },
     body: JSON.stringify(evt),
   }).catch((e) => ({ ok: false, status: 0, text: async () => String(e) }));
   if (!res.ok) {
@@ -51,84 +57,86 @@ async function post(evt) {
   }
 }
 
-async function subagent(session, cwd) {
+async function subagent(session, cwd, machine) {
   const agent_id = `agent-${++counter}`;
   const agent_type = pick(SUBAGENTS);
-  await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, tool_name: 'Agent', tool_input: { subagent_type: agent_type, description: pick(['Find the auth code', 'Review the diff', 'Plan the refactor', 'Write tests']) } });
-  await post({ hook_event_name: 'SubagentStart', session_id: session, cwd, agent_id, agent_type });
+  await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, tool_name: 'Agent', tool_input: { subagent_type: agent_type, description: pick(['Find the auth code', 'Review the diff', 'Plan the refactor', 'Write tests']) } }, machine);
+  await post({ hook_event_name: 'SubagentStart', session_id: session, cwd, agent_id, agent_type }, machine);
   const until = Date.now() + between(25, 90) * 1000;
   while (Date.now() < until) {
     const call = toolCall();
-    await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, agent_id, agent_type, ...call });
+    await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, agent_id, agent_type, ...call }, machine);
     await sleep(between(1, 3) * 1000);
-    await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, agent_id, agent_type, tool_name: call.tool_name });
+    await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, agent_id, agent_type, tool_name: call.tool_name }, machine);
     await sleep(between(2, 6) * 1000);
   }
-  await post({ hook_event_name: 'SubagentStop', session_id: session, cwd, agent_id, agent_type });
+  await post({ hook_event_name: 'SubagentStop', session_id: session, cwd, agent_id, agent_type }, machine);
 }
 
-async function runSession() {
+async function runSession(slot) {
   const session = `sim-${++counter}-${Math.random().toString(36).slice(2, 7)}`;
-  const cwd = `/work/${pick(PROJECTS)}`;
-  live.add(session);
-  await post({ hook_event_name: 'SessionStart', session_id: session, cwd, source: 'startup', model: pick(MODELS), session_title: pick(TITLES) });
+  const machine = machineName(slot);
+  const first = (slot % MACHINES) * 2;
+  const cwd = `/work/${pick(PROJECTS.slice(first % PROJECTS.length, (first % PROJECTS.length) + 3))}`;
+  live.set(session, machine);
+  await post({ hook_event_name: 'SessionStart', session_id: session, cwd, source: 'startup', model: pick(MODELS), session_title: pick(TITLES) }, machine);
   const rounds = Math.floor(between(3, 8));
   for (let r = 0; r < rounds && live.has(session); r++) {
     await sleep(between(8, 30) * 1000);
-    await post({ hook_event_name: 'UserPromptSubmit', session_id: session, cwd, prompt: 'do the thing' });
+    await post({ hook_event_name: 'UserPromptSubmit', session_id: session, cwd, prompt: 'do the thing' }, machine);
     const subs = [];
     const workUntil = Date.now() + between(20, 70) * 1000;
     while (Date.now() < workUntil && live.has(session)) {
       const roll = Math.random();
       if (roll < 0.12 && subs.length < 3) {
-        subs.push(subagent(session, cwd));
+        subs.push(subagent(session, cwd, machine));
       } else if (roll < 0.17) {
-        await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, tool_name: 'Bash', tool_input: { command: 'rm -rf dist', description: 'Clean the build folder' } });
-        await post({ hook_event_name: 'PermissionRequest', session_id: session, cwd, tool_name: 'Bash' });
-        await post({ hook_event_name: 'Notification', session_id: session, cwd, notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' });
+        await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, tool_name: 'Bash', tool_input: { command: 'rm -rf dist', description: 'Clean the build folder' } }, machine);
+        await post({ hook_event_name: 'PermissionRequest', session_id: session, cwd, tool_name: 'Bash' }, machine);
+        await post({ hook_event_name: 'Notification', session_id: session, cwd, notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }, machine);
         await sleep(between(4, 9) * 1000);
-        await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, tool_name: 'Bash' });
+        await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, tool_name: 'Bash' }, machine);
       } else if (roll < 0.19) {
-        await post({ hook_event_name: 'PreCompact', session_id: session, cwd, trigger: 'auto' });
+        await post({ hook_event_name: 'PreCompact', session_id: session, cwd, trigger: 'auto' }, machine);
         await sleep(between(4, 8) * 1000);
-        await post({ hook_event_name: 'PostCompact', session_id: session, cwd, trigger: 'auto' });
+        await post({ hook_event_name: 'PostCompact', session_id: session, cwd, trigger: 'auto' }, machine);
       } else {
         const call = toolCall();
-        await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, ...call });
+        await post({ hook_event_name: 'PreToolUse', session_id: session, cwd, ...call }, machine);
         await sleep(between(1, 3) * 1000);
-        await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, tool_name: call.tool_name });
+        await post({ hook_event_name: 'PostToolUse', session_id: session, cwd, tool_name: call.tool_name }, machine);
       }
       await sleep(between(2, 5) * 1000);
     }
     await Promise.all(subs);
     if (Math.random() < 0.08) {
-      await post({ hook_event_name: 'StopFailure', session_id: session, cwd, error: pick(['rate_limit', 'overloaded']) });
+      await post({ hook_event_name: 'StopFailure', session_id: session, cwd, error: pick(['rate_limit', 'overloaded']) }, machine);
     } else {
-      await post({ hook_event_name: 'Stop', session_id: session, cwd, background_tasks: [], session_crons: [] });
+      await post({ hook_event_name: 'Stop', session_id: session, cwd, background_tasks: [], session_crons: [] }, machine);
     }
   }
   await sleep(between(10, 25) * 1000);
   if (live.delete(session)) {
-    await post({ hook_event_name: 'SessionEnd', session_id: session, cwd, reason: 'other' });
+    await post({ hook_event_name: 'SessionEnd', session_id: session, cwd, reason: 'other' }, machine);
   }
 }
 
 async function keepAlive(slot) {
   await sleep(slot * 2500);
   for (;;) {
-    await runSession();
+    await runSession(slot);
     await sleep(between(5, 20) * 1000);
   }
 }
 
 process.on('SIGINT', async () => {
-  for (const session of live) {
-    await post({ hook_event_name: 'SessionEnd', session_id: session, reason: 'other' });
+  for (const [session, machine] of live) {
+    await post({ hook_event_name: 'SessionEnd', session_id: session, reason: 'other' }, machine);
   }
   process.exit(0);
 });
 
-console.log(`Simulating ${SESSIONS} Claude Code sessions in your office (Ctrl+C to stop)`);
+console.log(`Simulating ${SESSIONS} Claude Code sessions on ${MACHINES} computer${MACHINES === 1 ? '' : 's'} in your office (Ctrl+C to stop)`);
 for (let i = 0; i < SESSIONS; i++) {
   keepAlive(i);
 }

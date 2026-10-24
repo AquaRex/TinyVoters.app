@@ -8,14 +8,16 @@ import { brickAt, renderAt, rgba } from './walls';
 
 /**
  * Building structure: doors that sit in wall gaps, the elevator, the stairwell, the street façade and
- * exterior windows. Geometry follows the engine's thin cutaway walls (docs/ENGINE_CONTRACT.md):
- * an interior wall line occupies rows 12-19 of its tile, its face hangs 40 px up from the line's south
- * edge (y = 20), and its cap sits 40 px above the line.
+ * exterior windows. Geometry follows the engine's tile-filling cutaway walls (src/render/walls.ts): a horizontal
+ * wall's line occupies rows 24-31 of its tile, its face hangs 40 px up from the tile's south edge (y = 32), and its
+ * cap sits 40 px above the line. A vertical run is a full tile wide, its cap raised 40 px (y -40..-8).
  */
 
-const LINE_TOP = 12;
-const LINE_BOTTOM = 20;
+const LINE_TOP = 24;
+const LINE_BOTTOM = 32;
 const FACE_H = 40;
+/** Door frames sort just above the floor line of the tile's top rows, so people in the doorway draw in front. */
+const FRAME_Z = LINE_TOP;
 const nightLight = (x: number, y: number, radius: number, intensity: number): Light => ({ ...warmLight(x, y, radius, intensity), nightOnly: true });
 
 // ---------------------------------------------------------------------------------------------------------
@@ -154,7 +156,7 @@ function doorVariant(kind: DoorKind, facing: Dir) {
   const capFill = isOak ? oak[4] : steel[5];
   const capLight = isOak ? oak[5] : steel[6];
   const capLine = isOak ? oak[1] : steel[2];
-  const bounds: Bounds = { x: -18, y: -50, w: 68, h: 104 };
+  const bounds: Bounds = { x: -18, y: -50, w: 68, h: 118 };
   const frames: Part[][] = [];
   if (facing === 'down') {
     const tex = leafTexture(kind, 26);
@@ -162,7 +164,10 @@ function doorVariant(kind: DoorKind, facing: Dir) {
       const fx = 3 + 26 * Math.cos(a);
       const fy = LINE_BOTTOM + 26 * Math.sin(a);
       frames.push(layered(bounds, (L) => {
-        const f = L(LINE_BOTTOM);
+        const f = L(FRAME_Z);
+        // threshold strip on the floor line
+        f.rect(3, LINE_BOTTOM - 3, 26, 3, m.dark);
+        f.hline(3, LINE_BOTTOM - 3, 26, m.light);
         const faceTop = LINE_BOTTOM - FACE_H;
         lintel(f, 0, LINE_TOP - FACE_H, 32, 8, capFill, capLight, capLine, true);
         // casing: jambs and head trim, lit on the left
@@ -177,7 +182,7 @@ function doorVariant(kind: DoorKind, facing: Dir) {
         f.hline(3, faceTop + 3, 26, m.deep);
         f.hline(0, LINE_BOTTOM - 1, 3, m.line);
         f.hline(29, LINE_BOTTOM - 1, 3, m.line);
-        swingLeaf(L(Math.max(LINE_BOTTOM, Math.round(fy))), tex, 3, LINE_BOTTOM, fx, fy, m.dark);
+        swingLeaf(L(Math.max(FRAME_Z, Math.round(fy) - (LINE_BOTTOM - FRAME_Z))), tex, 3, LINE_BOTTOM, fx, fy, m.dark);
       }));
     }
   } else {
@@ -186,8 +191,17 @@ function doorVariant(kind: DoorKind, facing: Dir) {
       const fx = 16 - 28 * Math.sin(a);
       const fy = 2 + 28 * Math.cos(a);
       frames.push(layered(bounds, (L) => {
-        lintel(L(32), LINE_TOP, -FACE_H, 8, 32, capFill, capLight, capLine, false);
-        const leaf = L(Math.max(2, Math.round(fy)));
+        // a doorway through a full-tile wall: threshold across the passage, lintel cap and its front face span the tile
+        const sill = L(0);
+        sill.rect(10, 0, 12, 32, m.dark);
+        sill.vline(10, 0, 32, m.light);
+        sill.vline(21, 0, 32, m.line);
+        const frame = L(FRAME_Z);
+        lintel(frame, 0, -FACE_H, 32, 32, capFill, capLight, capLine, false);
+        frame.rect(0, -8, 32, 4, m.base);
+        frame.hline(0, -8, 32, m.light);
+        frame.hline(0, -5, 32, m.deep);
+        const leaf = L(Math.min(FRAME_Z - 1, Math.max(2, Math.round(fy))));
         if (a === 0) {
           leaf.rect(15, 2 - LEAF_H, 2, 28 + LEAF_H, m.base);
           leaf.vline(15, 2 - LEAF_H, 28 + LEAF_H, m.light);
@@ -207,6 +221,7 @@ for (const kind of ['oak', 'glass'] as DoorKind[]) {
     group: 'door',
     category: 'Structure',
     layer: 'object',
+    placement: 'free',
     facings: ['down', 'left'],
     door: true,
     keywords: ['door', 'entrance', kind],
@@ -347,6 +362,7 @@ defineAsset({
   group: 'elevator',
   category: 'Structure',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['lift', 'elevator'],
   build() {
@@ -445,6 +461,7 @@ defineAsset({
   group: 'stairs',
   category: 'Structure',
   layer: 'object',
+  placement: 'wall',
   facings: ['down'],
   keywords: ['stairs', 'stairwell'],
   build() {
@@ -822,6 +839,7 @@ for (const skin of FACADE_SKINS) {
     group: 'facade.wall',
     category: 'Structure',
     layer: 'object',
+    placement: 'wall',
     facings: ['down'],
     keywords: ['facade', 'exterior', skin],
     build() {
@@ -834,6 +852,7 @@ for (const skin of FACADE_SKINS) {
     group: 'facade.wall',
     category: 'Structure',
     layer: 'object',
+    placement: 'wall',
     facings: ['down'],
     keywords: ['facade', 'exterior', 'window', skin],
     build() {
@@ -846,6 +865,7 @@ for (const skin of FACADE_SKINS) {
     group: 'facade.entrance',
     category: 'Structure',
     layer: 'object',
+    placement: 'wall',
     facings: ['down'],
     door: true,
     keywords: ['facade', 'entrance', 'door', 'sign', skin],
@@ -869,6 +889,7 @@ for (const skin of FACADE_SKINS) {
       group: 'facade.corner',
       category: 'Structure',
       layer: 'object',
+      placement: 'wall',
       facings: ['down'],
       keywords: ['facade', 'corner', skin],
       build() {

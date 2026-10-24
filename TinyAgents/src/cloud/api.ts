@@ -1,7 +1,12 @@
 import { AgentInfo } from '../agents/agent';
+import type { Person } from '../agents/people';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
+import approveScript from '../../server/tinyagents-approve.mjs?raw';
 
 const TOKEN_KEY = 'tiny-agents.device.v1';
+
+/** Set when the page was opened with ?visit=<token>: a read-only view of someone's office (states only). */
+export const visitToken: string | null = new URLSearchParams(location.search).get('visit');
 
 export interface ChatEntry {
   id: number;
@@ -91,11 +96,162 @@ export function messages(agentId: string, after = 0): Promise<ChatEntry[]> {
   return rpc<ChatEntry[]>('tiny_messages', { p_token: deviceToken(), p_agent: agentId, p_after: after });
 }
 
+// ---------------------------------------------------------------- customized people (shared by every device of the office)
+
+/** Name and look per person slot, as the editor in the agent panel saved them. */
+export function people(): Promise<Record<string, Person>> {
+  return rpc<Record<string, Person>>('tiny_people', { p_token: deviceToken() });
+}
+
+export function savePersonRemote(slot: string, person: Person): Promise<void> {
+  return rpc<void>('tiny_save_person', { p_token: deviceToken(), p_slot: slot, p_person: person });
+}
+
+export function forgetPersonRemote(slot: string): Promise<void> {
+  return rpc<void>('tiny_forget_person', { p_token: deviceToken(), p_slot: slot });
+}
+
+// ---------------------------------------------------------------- custom names (team and room names, shared by every device)
+
+/** Custom names by key (`team:<machine>|<project>`, `room:<floor id>:<room id>`). */
+export function labels(): Promise<Record<string, string>> {
+  return rpc<Record<string, string>>('tiny_labels', { p_token: deviceToken() });
+}
+
+export function saveLabelRemote(key: string, name: string): Promise<void> {
+  return rpc<void>('tiny_save_label', { p_token: deviceToken(), p_key: key, p_name: name });
+}
+
+export function forgetLabelRemote(key: string): Promise<void> {
+  return rpc<void>('tiny_forget_label', { p_token: deviceToken(), p_key: key });
+}
+
+// ---------------------------------------------------------------- stats and careers
+
+export interface DayStats {
+  /** local day, YYYY-MM-DD */
+  day: string;
+  sessions: number;
+  prompts: number;
+  toolCalls: number;
+  /** distinct files edited or written */
+  files: number;
+  errors: number;
+  /** finished turns (Stop) */
+  turns: number;
+  /** longest single session that day, minutes */
+  longestMin: number;
+  /** tool name -> calls */
+  tools: Record<string, number>;
+  /** the staff member (machine + project) with the most tool calls */
+  busiest?: { machine: string; project: string; toolCalls: number };
+}
+
+/** A recurring staff member: one per computer + project folder. */
+export interface Career {
+  machine: string;
+  project: string;
+  daysWorked: number;
+  sessions: number;
+  prompts: number;
+  toolCalls: number;
+  turns: number;
+  topTool?: string;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface OfficeStats {
+  today: DayStats;
+  /** previous days, newest first (up to 14) */
+  history: DayStats[];
+  lifetimeTurns: number;
+  careers: Career[];
+}
+
+/** `tzOffsetMin` is the device's offset from UTC in minutes (east positive), so "today" is the viewer's day. */
+export function officeStats(): Promise<OfficeStats> {
+  return rpc<OfficeStats>('tiny_stats', { p_token: deviceToken(), p_tz_offset: -new Date().getTimezoneOffset() });
+}
+
+// ---------------------------------------------------------------- history (day replay)
+
+/** One state change of one agent; `state: 'ended'` means the session or subagent left. */
+export interface HistoryEvent {
+  at: string;
+  id: string;
+  kind: 'main' | 'sub';
+  type: string;
+  parent?: string;
+  machine?: string;
+  project?: string;
+  state: AgentInfo['state'] | 'ended';
+  tool?: string;
+  detail?: string;
+}
+
+export function history(sinceIso: string): Promise<HistoryEvent[]> {
+  return rpc<HistoryEvent[]>('tiny_history', { p_token: deviceToken(), p_since: sinceIso });
+}
+
+// ---------------------------------------------------------------- visitor links (read-only, no details)
+
+/** Creates (or returns the existing) visitor token for this office. */
+export function visitorLink(): Promise<string> {
+  return rpc<string>('tiny_visitor_link', { p_token: deviceToken() });
+}
+
+export function revokeVisitorLink(): Promise<void> {
+  return rpc<void>('tiny_visitor_revoke', { p_token: deviceToken() });
+}
+
+/** States only: id, kind, type, parent, busy, waiting, state. No tools, details, titles, projects or chat. */
+export function visitorSnapshot(visitor: string): Promise<AgentInfo[]> {
+  return rpc<AgentInfo[]>('tiny_visitor_snapshot', { p_visitor: visitor });
+}
+
+// ---------------------------------------------------------------- web push
+
+export function pushSubscribe(sub: PushSubscriptionJSON): Promise<void> {
+  return rpc<void>('tiny_push_subscribe', { p_token: deviceToken(), p_sub: sub });
+}
+
+export function pushUnsubscribe(endpoint: string): Promise<void> {
+  return rpc<void>('tiny_push_unsubscribe', { p_token: deviceToken(), p_endpoint: endpoint });
+}
+
+// ---------------------------------------------------------------- remote approvals (opt-in "away mode")
+
+export interface ApprovalRequest {
+  id: string;
+  agentId: string;
+  tool: string;
+  detail?: string;
+  at: string;
+}
+
+export function awayInfo(): Promise<{ away: boolean }> {
+  return rpc<{ away: boolean }>('tiny_away_info', { p_token: deviceToken() });
+}
+
+export function setAway(on: boolean): Promise<void> {
+  return rpc<void>('tiny_set_away', { p_token: deviceToken(), p_on: on });
+}
+
+export function pendingApprovals(): Promise<ApprovalRequest[]> {
+  return rpc<ApprovalRequest[]>('tiny_pending_approvals', { p_token: deviceToken() });
+}
+
+export function decideApproval(id: string, allow: boolean): Promise<void> {
+  return rpc<void>('tiny_decide', { p_token: deviceToken(), p_request: id, p_allow: allow });
+}
+
 export type OfficeStatus = 'unpaired' | 'connecting' | 'online' | 'offline';
 
 /**
  * Polls the office every couple of seconds while the page is visible. Unpaired devices get no Claude
- * agents (demo staff only). A device whose token was revoked is unpaired again.
+ * agents (demo staff only). A device whose token was revoked is unpaired again. Visitors (?visit=) poll
+ * the states-only visitor snapshot instead.
  */
 export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (s: OfficeStatus) => void): () => void {
   let timer = 0;
@@ -104,15 +260,15 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
     if (stopped) {
       return;
     }
-    if (!deviceToken()) {
+    if (!visitToken && !deviceToken()) {
       onStatus('unpaired');
       onAgents([]);
     } else if (document.visibilityState === 'visible') {
       try {
-        onAgents(await snapshot());
+        onAgents(await (visitToken ? visitorSnapshot(visitToken) : snapshot()));
         onStatus('online');
       } catch (e) {
-        if (e instanceof CloudError && e.message === 'not paired') {
+        if (!visitToken && e instanceof CloudError && e.message === 'not paired') {
           saveToken(null);
           onStatus('unpaired');
           onAgents([]);
@@ -123,7 +279,7 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
     }
     timer = window.setTimeout(tick, 2000);
   };
-  onStatus(deviceToken() ? 'connecting' : 'unpaired');
+  onStatus(visitToken || deviceToken() ? 'connecting' : 'unpaired');
   tick();
   const wake = () => {
     if (document.visibilityState === 'visible') {
@@ -179,5 +335,20 @@ export function installPrompt(key: string, machine: string, os: 'windows' | 'mac
     `For each of these events: ${HOOK_EVENTS.join(', ')}, append this entry to that event's list (keep every existing hook untouched, and replace any earlier entry whose command contains "tiny_ingest"):`,
     JSON.stringify({ hooks: [{ type: 'command', command: cmd, async: true, timeout: 15 }] }),
     'Then show me the events you added. Do not change anything else.',
+  ].join('\n\n');
+}
+
+/**
+ * A prompt to paste into Claude Code on a computer: adds the away-mode approvals hook (a PermissionRequest
+ * hook that waits for a paired device's decision while away mode is on, and does nothing otherwise).
+ */
+export function approvalsPrompt(key: string): string {
+  return [
+    'Please add Tiny Agents away-mode approvals to this computer. It needs Node.js 18 or newer (check with `node --version`).',
+    '1. Create the file ~/.claude/tinyagents-approve.mjs with exactly this content:',
+    '```js\n' + approveScript.trim() + '\n```',
+    '2. In my USER settings file (~/.claude/settings.json), append this entry to the "PermissionRequest" hooks list (keep every existing hook untouched, and replace any earlier entry whose command contains "tinyagents-approve"). Use the absolute path of that file with forward slashes in place of <PATH>:',
+    JSON.stringify({ hooks: [{ type: 'command', command: `node "<PATH>" ${key}`, timeout: 660 }] }),
+    'Then show me what you changed. Do not change anything else.',
   ].join('\n\n');
 }
