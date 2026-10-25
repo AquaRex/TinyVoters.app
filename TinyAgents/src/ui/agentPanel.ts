@@ -48,7 +48,8 @@ function needColor(v: number): string {
 
 export class AgentPanel {
   agent: Agent | null = null;
-  follow = false;
+  /** who the camera follows: kept after the window closes, until a long pan away (main) */
+  following: Agent | null = null;
   private root: HTMLElement;
   private preview!: HTMLCanvasElement;
   private previewDir = 0;
@@ -60,6 +61,13 @@ export class AgentPanel {
 
   constructor(private onClose: () => void) {
     this.root = document.getElementById('agentPanel')!;
+  }
+
+  /** Redraws the open window's info (e.g. the Follow button after following stopped elsewhere). */
+  refresh(): void {
+    if (this.agent && !this.customizing) {
+      this.render();
+    }
   }
 
   open(agent: Agent): void {
@@ -75,7 +83,6 @@ export class AgentPanel {
     this.chat?.stop();
     this.chat = null;
     this.agent = null;
-    this.follow = false;
     this.customizing = false;
     this.root.hidden = true;
     this.onClose();
@@ -119,7 +126,7 @@ export class AgentPanel {
       <div class="ap-needs"></div>
       ${a.isSub || a.npc ? '' : `<div class="ap-career">${careerSection(a)}</div>`}
       <div class="ap-foot">
-        <button data-act="follow" class="${this.follow ? 'on' : ''}">Follow</button>
+        <button data-act="follow" class="${this.following === a ? 'on' : ''}">Follow</button>
         <button data-act="customize">Customize</button>
       </div>
       ${a.npc ? `<p class="ap-note">${escapeHtml(a.name)} works for the building, not on a team: keeps office hours and comes and goes by the front door.</p>` : ''}`;
@@ -169,7 +176,7 @@ export class AgentPanel {
       renameInline(team!, teamName(a), lead.info.project, r.left + 60, r.bottom + 14, () => this.agent === a && this.render());
     });
     this.root.querySelector('[data-act="follow"]')!.addEventListener('click', () => {
-      this.follow = !this.follow;
+      this.following = this.following === a ? null : a;
       this.render();
     });
     this.root.querySelector('[data-act="customize"]')!.addEventListener('click', () => {

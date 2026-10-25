@@ -334,7 +334,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (pinch && touches.size === 2) {
     const [dist, x, y] = pinchSpan();
-    panel.follow = false;
+    panned = true;
     renderer.camera.x -= (x - pinch.x) / renderer.cssScale;
     renderer.camera.y -= (y - pinch.y) / renderer.cssScale;
     pinch.x = x;
@@ -357,7 +357,7 @@ canvas.addEventListener('pointermove', (e) => {
     drag.moved = true;
   }
   if (drag.pan && drag.moved) {
-    panel.follow = false;
+    panned = true;
     renderer.camera.x = drag.camX - dx / renderer.cssScale;
     renderer.camera.y = drag.camY - dy / renderer.cssScale;
   }
@@ -493,10 +493,41 @@ function panWithKeys(dt: number): void {
     dy += speed;
   }
   if (dx || dy) {
-    panel.follow = false;
+    panned = true;
     renderer.camera.x += dx;
     renderer.camera.y += dy;
   }
+}
+
+/** The camera was moved by hand this frame (drag, keys or a two-finger pan; zooming alone doesn't count). */
+let panned = false;
+/** Panning the followed person further than this share of the screen's shorter side from the centre lets go of them. */
+const FOLLOW_BREAK = 0.35;
+
+/**
+ * Keeps the followed person in view (window open or not). A short pan just pauses it and the view glides back;
+ * panning them far off the centre stops following.
+ */
+function follow(dt: number, floor: Floor): void {
+  const a = panel.following;
+  if (!a || a.gone) {
+    panel.following = null;
+    panned = false;
+    return;
+  }
+  const cam = renderer.camera;
+  const x = a.x;
+  const y = a.y - 24 - lifted(floorOf(a) ?? floor);
+  if (panned || (drag?.pan && drag.moved) || pinch) {
+    panned = false;
+    if (Math.hypot(x - cam.x, y - cam.y) * renderer.cssScale > Math.min(window.innerWidth, window.innerHeight) * FOLLOW_BREAK) {
+      panel.following = null;
+      panel.refresh();
+    }
+    return;
+  }
+  cam.x += (x - cam.x) * Math.min(1, dt * 4);
+  cam.y += (y - cam.y) * Math.min(1, dt * 4);
 }
 
 function clampCamera(): void {
@@ -513,8 +544,8 @@ function lifted(f: Floor): number {
 
 /** A followed person who takes the lift or the stairs takes the view along to their new floor. */
 function followSelected(): void {
-  const a = renderer.selected;
-  const at = a && !a.gone && panel.follow ? floorOf(a) : undefined;
+  const a = panel.following;
+  const at = a && !a.gone ? floorOf(a) : undefined;
   if (a && at && at !== shown() && !seenFrom(shown(), a) && !app.override && !editor.active) {
     showFloor(at);
   }
@@ -533,11 +564,7 @@ function frame(now: number): void {
   followSelected();
   const floor = shown();
   panWithKeys(dt);
-  if (panel.follow && panel.agent) {
-    const cam = renderer.camera;
-    cam.x += (panel.agent.x - cam.x) * Math.min(1, dt * 4);
-    cam.y += (panel.agent.y - 24 - lifted(floorOf(panel.agent) ?? floor) - cam.y) * Math.min(1, dt * 4);
-  }
+  follow(dt, floor);
   if (renderer.selected && renderer.selected.floor !== floor.director && !seenFrom(floor, renderer.selected)) {
     panel.close();
   }
@@ -556,7 +583,11 @@ function frame(now: number): void {
 }
 requestAnimationFrame(frame);
 
-// in dev too, so phone alerts can be tried on localhost (the worker caches nothing there)
+// in dev too, so phone alerts can be tried on localhost (the worker caches nothing there). A changed worker is
+// picked up on this very load (never from the HTTP cache), so an outdated one can't keep serving old files.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((e) => console.warn('service worker not registered', e));
+  navigator.serviceWorker
+    .register(`${import.meta.env.BASE_URL}sw.js`, { updateViaCache: 'none' })
+    .then((reg) => reg.update())
+    .catch((e) => console.warn('service worker not registered', e));
 }

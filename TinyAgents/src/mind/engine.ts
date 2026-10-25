@@ -10,6 +10,10 @@ export const ROUTINE: Priority = 2;
 /** How long a request may wait in the queue before its moment has passed (ms), per priority. */
 const MAX_QUEUED: Record<Priority, number> = { 0: Infinity, 1: 5000, 2: 8000 };
 
+/** Tries at downloading the model when the connection drops, and the pause before each retry (ms). */
+const DOWNLOAD_TRIES = 4;
+const RETRY_WAIT = 4000;
+
 export type Msg ={ role: 'system' | 'user' | 'assistant'; content: string };
 
 interface Job {
@@ -103,6 +107,27 @@ class Engine {
     await new Promise((r) => setTimeout(r, 2500));
     await new Promise((r) => requestAnimationFrame(() => r(null)));
     await new Promise((r) => ('requestIdleCallback' in window ? requestIdleCallback(() => r(null), { timeout: 3000 }) : r(null)));
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.load();
+        return;
+      } catch (e) {
+        this.teardown();
+        // a dropped connection mid-download: the shards already fetched stay cached, so a retry picks up from there
+        if (!(e instanceof DOMException && e.name === 'NetworkError') || attempt === DOWNLOAD_TRIES) {
+          this.set('error', e instanceof Error ? e.message.split('\n')[0].slice(0, 160) : String(e));
+          return;
+        }
+        this.set('loading', 'Download interrupted, picking up where it left off…');
+        await new Promise((r) => setTimeout(r, RETRY_WAIT));
+        if (this.state === 'off') {
+          return;
+        }
+      }
+    }
+  }
+
+  private async load(): Promise<void> {
     this.cached = await hasModelInCache(MIND_MODEL, APP_CONFIG).catch(() => false);
     const t0 = performance.now();
     let fetchStart = 0;
@@ -122,32 +147,33 @@ class Engine {
         this.set('loading', `${this.cached ? 'Loading from cache' : 'Preparing'} · ${Math.floor(p.progress * 100)}%`);
       }
     });
-    try {
-      await this.engine.reload(MIND_MODEL, { context_window_size: MIND_CONTEXT });
-      // the first request compiles the GPU pipelines: do it while loading, not when someone first talks
-      await this.engine.chat.completions.create({ messages: [{ role: 'user', content: 'Say hi.' }], max_tokens: 4, response_format: { type: 'json_object', schema: JSON.stringify({ type: 'object', properties: { say: { type: 'string' } }, required: ['say'] }) } });
-      this.loadMs = performance.now() - t0;
-      this.download = null;
-      this.set('ready', '');
-      console.info(`[mind] engine ready in ${Math.round(this.loadMs)} ms (${this.cached ? 'from cache' : 'downloaded'})`);
-      void this.pump();
-    } catch (e) {
-      this.stop();
-      this.set('error', e instanceof Error ? e.message.split('\n')[0].slice(0, 160) : String(e));
-    }
+    await this.engine.reload(MIND_MODEL, { context_window_size: MIND_CONTEXT });
+    this.download = null;
+    this.set('loading', 'Getting the minds ready (preparing the GPU, slower on phones)…');
+    // the first request compiles the GPU pipelines: do it while loading, not when someone first talks
+    await this.engine.chat.completions.create({ messages: [{ role: 'user', content: 'Say hi.' }], max_tokens: 4, response_format: { type: 'json_object', schema: JSON.stringify({ type: 'object', properties: { say: { type: 'string' } }, required: ['say'] }) } });
+    this.loadMs = performance.now() - t0;
+    this.set('ready', '');
+    console.info(`[mind] engine ready in ${Math.round(this.loadMs)} ms (${this.cached ? 'from cache' : 'downloaded'})`);
+    void this.pump();
   }
 
   stop(): void {
+    this.teardown();
+    if (this.state !== 'unsupported' && this.state !== 'error') {
+      this.set('off', '');
+    }
+  }
+
+  private teardown(): void {
     void this.engine?.unload().catch(() => undefined);
     this.worker?.terminate();
     this.engine = null;
     this.worker = null;
+    this.download = null;
     this.queue.forEach((j) => j.resolve(null));
     this.queue = [];
     this.pending.clear();
-    if (this.state !== 'unsupported' && this.state !== 'error') {
-      this.set('off', '');
-    }
   }
 
   /** Queues a request; resolves with the parsed JSON (and raw text), or null when dropped or invalid. */

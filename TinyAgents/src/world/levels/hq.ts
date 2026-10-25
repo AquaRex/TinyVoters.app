@@ -116,8 +116,8 @@ function groundFloor(): Layout {
   b.wall(41, 14, 41, 20, 'wall.cream').wall(42, 17, 45, 17, 'wall.cream').wall(42, 20, 45, 20, 'wall.sage');
   b.wall(33, 21, 37, 21, 'wall.cream').wall(38, 21, 38, 25, 'wall.cream').wall(33, 22, 33, 25, 'wall.glass');
 
-  k.door('door.glass', 30, 26, 'down');
-  k.door('door.glass', 31, 26, 'down');
+  k.door('door.entrance.left', 30, 26, 'down');
+  k.door('door.entrance.right', 31, 26, 'down');
   k.door('door.oak', 24, 9, 'down');
   // the canteen is open to the service corridor and, wide, to the entrance hall
   k.door('door.open', 25, 11, 'left');

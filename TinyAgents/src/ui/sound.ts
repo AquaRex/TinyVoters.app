@@ -1,9 +1,9 @@
 import { ux } from './prefs';
 
-export type Cue = 'permission' | 'done' | 'bell' | 'celebrate' | 'click';
+export type Cue = 'permission' | 'done' | 'bell' | 'celebrate';
 
-export type Channel = 'music' | 'office' | 'chimes' | 'weather';
-const CHANNELS: Channel[] = ['music', 'office', 'chimes', 'weather'];
+export type Channel = 'music' | 'office' | 'chimes' | 'weather' | 'ui';
+const CHANNELS: Channel[] = ['music', 'office', 'chimes', 'weather', 'ui'];
 /** Channel gain at 50% volume (the original loudness); 100% doubles it. */
 const BASE = 0.5;
 
@@ -22,16 +22,19 @@ export function channel(c: Channel): GainNode | null {
 }
 
 /** Applies Settings > Audio: the master volume, and each channel's switch and volume. */
+/** UI clicks sit under everything else: full volume on their slider is half the recording's level. */
+const UI_LEVEL = 0.5;
+
 export function applyAudio(): void {
   if (!ctx || !master) {
     return;
   }
   const t = ctx.currentTime;
-  const on: Record<Channel, boolean> = { music: ux.music, office: ux.office, chimes: ux.chimes, weather: ux.weather };
-  const vol: Record<Channel, number> = { music: ux.volume, office: ux.officeVol, chimes: ux.chimesVol, weather: ux.weatherVol };
+  const on: Record<Channel, boolean> = { music: ux.music, office: ux.office, chimes: ux.chimes, weather: ux.weather, ui: ux.ui };
+  const vol: Record<Channel, number> = { music: ux.volume, office: ux.officeVol, chimes: ux.chimesVol, weather: ux.weatherVol, ui: ux.uiVol };
   master.gain.setTargetAtTime(ux.master * 2, t, 0.05);
   for (const [c, g] of channels) {
-    g.gain.setTargetAtTime(on[c] ? vol[c] * 2 * BASE : 0, t, 0.05);
+    g.gain.setTargetAtTime(on[c] ? vol[c] * 2 * BASE * (c === 'ui' ? UI_LEVEL : 1) : 0, t, 0.05);
   }
 }
 
@@ -47,6 +50,11 @@ function unlock(): void {
       channels.set(c, g);
     }
     applyAudio();
+    const audio = ctx;
+    void fetch(`${import.meta.env.BASE_URL}sounds/click.wav`)
+      .then((r) => r.arrayBuffer())
+      .then((b) => audio.decodeAudioData(b))
+      .then((b) => (clickParts = { down: cut(audio, b, PRESS_AT, RELEASE_AT), up: cut(audio, b, RELEASE_AT, b.duration) }));
   }
   if (ctx.state === 'suspended') {
     void ctx.resume();
@@ -109,6 +117,50 @@ export function burst(at: number, dur: number, gain: number, freq: number, out?:
   src.stop(t + dur + 0.02);
 }
 
+/** The recorded mouse click split at the release: press 3.5 ms in, release 97.5 ms in (cut just before each onset). */
+const PRESS_AT = 0.0035;
+const RELEASE_AT = 0.0975;
+type ClickPart = 'down' | 'up';
+let clickParts: Record<ClickPart, AudioBuffer> | null = null;
+
+function cut(audio: BaseAudioContext, b: AudioBuffer, from: number, to: number): AudioBuffer {
+  const start = Math.round(from * b.sampleRate);
+  const data = b.getChannelData(0).slice(start, Math.round(to * b.sampleRate));
+  const out = audio.createBuffer(1, data.length, b.sampleRate);
+  out.copyToChannel(data, 0);
+  return out;
+}
+
+/** Presses on these get the UI click sound (the game world, a canvas, never does). */
+const UI_CLICKABLE = 'button, a[href], [role="button"], [role="slider"], input[type="checkbox"], select, .ro-team';
+
+/** Half of the recorded mouse click on the UI channel, a touch higher or lower each time. */
+export function uiClick(part: ClickPart): void {
+  const out = channel('ui');
+  if (!ctx || !out || !clickParts || !ux.ui) {
+    return;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = clickParts[part];
+  src.playbackRate.value = 0.95 + Math.random() * 0.1;
+  src.connect(out);
+  src.start();
+}
+
+let pressed = false;
+document.addEventListener('pointerdown', (e) => {
+  pressed = e.button === 0 && !!(e.target as Element | null)?.closest?.(UI_CLICKABLE);
+  if (pressed) {
+    uiClick('down');
+  }
+}, true);
+document.addEventListener('pointerup', () => {
+  if (pressed) {
+    uiClick('up');
+  }
+  pressed = false;
+}, true);
+
 /** Play a chime; does nothing while chimes are off or before the first user gesture. */
 export function playCue(cue: Cue): void {
   if (!ux.chimes || !ctx) {
@@ -132,9 +184,6 @@ export function playCue(cue: Cue): void {
     case 'celebrate':
       [523.3, 659.3, 784, 1046.5].forEach((f, i) => tone(f, i * 0.08, 0.4, 0.06, 'square'));
       tone(1318.5, 0.34, 0.6, 0.08, 'triangle');
-      break;
-    case 'click':
-      burst(0, 0.03, 0.25, 3500);
       break;
   }
 }

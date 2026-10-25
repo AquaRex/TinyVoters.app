@@ -17,6 +17,9 @@ export interface UxPrefs {
   /** rain on the roof, windows and ground */
   weather: boolean;
   weatherVol: number;
+  /** a mouse click when clicking buttons and controls */
+  ui: boolean;
+  uiVol: number;
   /** ambient mode also goes fullscreen */
   fullscreen: boolean;
   /** snow on the ground through December */
@@ -28,7 +31,7 @@ export interface UxPrefs {
 const KEY = 'tiny-agents.ux.v1';
 const DEFAULTS: UxPrefs = {
   alerts: false, master: 0.5, music: false, volume: 0.5, office: false, officeVol: 0.5, chimes: false, chimesVol: 0.5,
-  weather: false, weatherVol: 0.5, fullscreen: true, snow: true, timeSpeed: 1,
+  weather: false, weatherVol: 0.5, ui: true, uiVol: 0.5, fullscreen: true, snow: true, timeSpeed: 1,
 };
 
 export const ux: UxPrefs = (() => {

@@ -3,7 +3,8 @@
 // The site shares its origin (and cache storage) with TinyVoters, so only our own caches are ever deleted.
 // It also shows phone alerts (web push from the tiny-push Edge Function), with the app closed too.
 // On localhost (vite dev) it caches nothing, so dev modules are never served stale.
-const CACHE = 'tiny-agents-v1';
+// Bumped to drop what earlier workers cached (the page from before a deploy, unhashed files like sounds).
+const CACHE = 'tiny-agents-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest', './icons/icon-192.png'])));
@@ -23,8 +24,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (e.request.mode === 'navigate') {
+    // always revalidated, so a deploy shows on the next load instead of after the host's 10-minute cache
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put('./', copy));

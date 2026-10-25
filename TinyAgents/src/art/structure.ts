@@ -150,13 +150,14 @@ function lintel(p: Pen, x: number, y: number, w: number, h: number, fill: string
   }
 }
 
-function doorVariant(kind: DoorKind, facing: Dir) {
+/** `signAt`: the x (in this tile) where the company sign over a pair of entrance doors is centred; both doors draw it whole. */
+function doorVariant(kind: DoorKind, facing: Dir, signAt?: number) {
   const isOak = kind === 'oak';
   const m = isOak ? mat(oak) : mat(steel);
   const capFill = isOak ? oak[4] : steel[5];
   const capLight = isOak ? oak[5] : steel[6];
   const capLine = isOak ? oak[1] : steel[2];
-  const bounds: Bounds = { x: -18, y: -50, w: 68, h: 118 };
+  const bounds: Bounds = signAt === undefined ? { x: -18, y: -50, w: 68, h: 118 } : { x: -34, y: -50, w: 100, h: 118 };
   const frames: Part[][] = [];
   if (facing === 'down') {
     const tex = leafTexture(kind, 26);
@@ -182,6 +183,10 @@ function doorVariant(kind: DoorKind, facing: Dir) {
         f.hline(3, faceTop + 3, 26, m.deep);
         f.hline(0, LINE_BOTTOM - 1, 3, m.line);
         f.hline(29, LINE_BOTTOM - 1, 3, m.line);
+        if (signAt !== undefined) {
+          // above both leaves, so the neighbouring door's glass never cuts the lettering
+          fascia(L(FRAME_Z + 1), signAt - 31, faceTop, 62);
+        }
         swingLeaf(L(Math.max(FRAME_Z, Math.round(fy) - (LINE_BOTTOM - FRAME_Z))), tex, 3, LINE_BOTTOM, fx, fy, m.dark);
       }));
     }
@@ -710,6 +715,32 @@ function text(p: Pen, s: string, x: number, y: number, c: string): void {
     g.forEach((row, r) => [...row].forEach((on, i) => on === '#' && p.px(cx + i, y + r, c)));
     cx += g[0].length + 1;
   }
+}
+
+/** The company sign over the front doors: a dark fascia with warm-lit letters, like the street canopy's. */
+function fascia(p: Pen, x: number, y: number, w: number): void {
+  p.rect(x, y, w, 7, charcoal[1]);
+  p.hline(x, y, w, charcoal[3]);
+  p.hline(x, y + 6, w, charcoal[0]);
+  const label = 'TINY AGENTS';
+  text(p, label, x + Math.floor((w - textWidth(label)) / 2), y + 1, lightWarm[1]);
+}
+
+for (const [side, signAt] of [['left', 32], ['right', 0]] as const) {
+  defineAsset({
+    id: `door.entrance.${side}`,
+    name: `Entrance door with sign (${side})`,
+    group: 'door',
+    category: 'Structure',
+    layer: 'object',
+    placement: 'free',
+    facings: ['down'],
+    door: true,
+    keywords: ['door', 'entrance', 'glass', 'sign', 'tiny agents'],
+    build(facing: Dir) {
+      return doorVariant('glass', facing, signAt);
+    },
+  });
 }
 
 /** The lobby seen through the entrance glass: warm back wall, a plant, terrazzo floor. */
