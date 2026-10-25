@@ -1,10 +1,11 @@
 /**
  * The AI staff's model: Qwen3.5-0.8B fine-tuned on office-worker decisions, reactions and conversations (trained in
  * G:\LLM\Custom\TinyAgent), converted to the official Qwen3.5-0.8B q4f16_1 layout so the official WebGPU library runs
- * it. Weights are served from MIND_MODEL_URL (a folder ending in /resolve/main/, as web-llm expects).
+ * it. The weights are hosted on Hugging Face (too big for GitHub Pages), in a folder ending in /resolve/main/ as
+ * web-llm expects.
  */
 export const MIND_MODEL = 'TinyAgent-0.8B-v5';
-export const MIND_MODEL_URL = `${import.meta.env.BASE_URL}models/tinyagent-0.8b-v5/resolve/main/`;
+export const MIND_MODEL_URL = 'https://huggingface.co/AquaRex/tinyagent-0.8b-v5/resolve/main/';
 /** The official prebuilt this model shares its WebGPU library with. */
 export const MIND_BASE = 'Qwen3.5-0.8B-q4f16_1-MLC';
 
