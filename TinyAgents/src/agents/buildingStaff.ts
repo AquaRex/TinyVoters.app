@@ -40,8 +40,8 @@ interface NpcDef {
 }
 
 const NPCS: NpcDef[] = [
-  { id: 'npc:chef:0', name: 'Marco', role: 'chef', level: 0, hours: [10, 14] },
-  { id: 'npc:chef:1', name: 'Ines', role: 'chef', level: 0, hours: [10, 14] },
+  { id: 'npc:chef:0', name: 'Marco', role: 'chef', level: 0, hours: [6, 14] },
+  { id: 'npc:chef:1', name: 'Ines', role: 'chef', level: 0, hours: [6, 14] },
   { id: 'npc:it:0', name: 'Raj', role: 'it', level: 0, hours: [8, 17.5] },
   { id: 'npc:guard:0', name: 'Bruno', role: 'guard', level: 0, hours: [6.75, 19], relieves: 'npc:guard:1' },
   { id: 'npc:guard:1', name: 'Nadia', role: 'guard', level: 0, hours: [18.75, 7], relieves: 'npc:guard:0' },
