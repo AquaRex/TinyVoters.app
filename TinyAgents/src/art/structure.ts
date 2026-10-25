@@ -231,6 +231,42 @@ for (const kind of ['oak', 'glass'] as DoorKind[]) {
   });
 }
 
+/**
+ * An open doorway: a gap in the wall with no door and nothing over it, just a slim oak threshold where the floors
+ * meet. It still divides rooms like a door; side by side they make a wide opening.
+ */
+function openingVariant(facing: Dir) {
+  const m = mat(oak);
+  const frame = layered({ x: 0, y: 0, w: 32, h: 32 }, (L) => {
+    const sill = L(0);
+    if (facing === 'down') {
+      sill.rect(0, LINE_BOTTOM - 3, 32, 3, m.base);
+      sill.hline(0, LINE_BOTTOM - 3, 32, m.light);
+      sill.hline(0, LINE_BOTTOM - 1, 32, m.dark);
+      return;
+    }
+    sill.rect(14, 0, 4, 32, m.base);
+    sill.vline(14, 0, 32, m.light);
+    sill.vline(17, 0, 32, m.dark);
+  });
+  return makeVariant({ w: 1, h: 1, mask: ['.'], frames: [frame] });
+}
+
+defineAsset({
+  id: 'door.open',
+  name: 'Open doorway',
+  group: 'door',
+  category: 'Structure',
+  layer: 'object',
+  placement: 'free',
+  facings: ['down', 'left'],
+  door: true,
+  keywords: ['doorway', 'opening', 'archway', 'open'],
+  build(facing: Dir) {
+    return openingVariant(facing);
+  },
+});
+
 // ---------------------------------------------------------------------------------------------------------
 // Elevator: a brushed-steel portal standing against the wall north of it, centre-opening doors over a warm
 // cab, floor indicator and call buttons. Doors open across 6 frames (anim 'door', driven by the director).

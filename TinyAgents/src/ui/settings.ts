@@ -4,30 +4,73 @@ import { applyMusic } from './music';
 import { requestAlerts, sendAlert } from './notify';
 import { saveUx, ux } from './prefs';
 import { openReplay } from './replay';
-import { playCue } from './sound';
+import { applyAudio, playCue } from './sound';
+import { aiWanted, setAi } from '../mind/brain';
+import { engine } from '../mind/engine';
 
-/** The Settings panel: alerts, sound, music, ambient mode and the day replay. */
+type AudioSwitch = 'music' | 'office' | 'chimes' | 'weather';
+type AudioVolume = 'master' | 'volume' | 'officeVol' | 'chimesVol' | 'weatherVol';
+const SWITCH_OF: Record<Exclude<AudioVolume, 'master'>, AudioSwitch> = { volume: 'music', officeVol: 'office', chimesVol: 'chimes', weatherVol: 'weather' };
+
+function aiText(): string {
+  const dl = engine.download;
+  switch (engine.state) {
+    case 'unsupported':
+      return `Unavailable: ${engine.note}.`;
+    case 'error':
+      return `Couldn't start: ${engine.note}`;
+    case 'ready':
+      return `Running: ${engine.cached ? 'loaded from the cache' : 'downloaded'} in ${(engine.loadMs / 1000).toFixed(1)} s.`;
+    case 'loading':
+      if (dl) {
+        const total = engine.progress > 0 ? Math.round(dl.mb / engine.progress) : 0;
+        return `Downloading ${dl.mb} of ~${total} MB · ${Math.floor(engine.progress * 100)}% · ${dl.speed.toFixed(1)} MB/s · ${Math.ceil(dl.eta)} s left`;
+      }
+      return engine.note;
+    default:
+      return '';
+  }
+}
+
+/** The Settings panel: General (alerts, time speed, snow, ambient mode, AI staff, replay) and Audio (master and four channels). */
 export function initSettings(): void {
   const panel = document.getElementById('settings')!;
   const $ = <T extends HTMLElement>(sel: string) => panel.querySelector<T>(sel)!;
   const alertsBtn = $<HTMLButtonElement>('[data-set="alerts"]');
-  const soundBtn = $<HTMLButtonElement>('[data-set="sound"]');
-  const musicBtn = $<HTMLButtonElement>('[data-set="music"]');
-  const volume = $<HTMLInputElement>('[data-set="volume"]');
+  const snowBtn = $<HTMLButtonElement>('[data-set="snow"]');
+  const audioBtns = [...panel.querySelectorAll<HTMLButtonElement>('[data-set="music"], [data-set="office"], [data-set="chimes"], [data-set="weather"]')];
+  const sliders = [...panel.querySelectorAll<HTMLInputElement>('[data-vol]')];
+  const speeds = [...panel.querySelectorAll<HTMLButtonElement>('[data-speed]')];
   const fullscreen = $<HTMLInputElement>('[data-set="fullscreen"]');
   const alertNote = $('.st-alert-note');
+  const aiBtn = $<HTMLButtonElement>('[data-set="ai"]');
+  const aiNote = $('.st-ai-note');
+  const aiBar = $<HTMLProgressElement>('.st-ai-bar');
 
   function render(): void {
     for (const [btn, value] of [
       [alertsBtn, ux.alerts],
-      [soundBtn, ux.sound],
-      [musicBtn, ux.music],
+      [snowBtn, ux.snow],
+      ...audioBtns.map((b) => [b, ux[b.dataset.set as AudioSwitch]] as const),
     ] as const) {
       btn.classList.toggle('on', value);
       btn.textContent = value ? 'On' : 'Off';
     }
-    volume.value = String(Math.round(ux.volume * 100));
-    volume.disabled = !ux.music;
+    const aiOn = engine.state === 'loading' || engine.state === 'ready';
+    aiBtn.classList.toggle('on', aiOn);
+    aiBtn.textContent = aiOn ? 'On' : 'Off';
+    aiBtn.disabled = engine.state === 'unsupported';
+    aiBar.hidden = engine.state !== 'loading';
+    aiBar.value = engine.progress;
+    aiNote.textContent = aiText();
+    for (const b of speeds) {
+      b.classList.toggle('on', Number(b.dataset.speed) === ux.timeSpeed);
+    }
+    for (const el of sliders) {
+      const key = el.dataset.vol as AudioVolume;
+      el.value = String(Math.round(ux[key] * 100));
+      el.disabled = key !== 'master' && !ux[SWITCH_OF[key]];
+    }
     fullscreen.checked = ux.fullscreen;
     let push = false;
     try {
@@ -61,22 +104,50 @@ export function initSettings(): void {
     }
     await sendAlert(a ? `${a.name} needs you` : 'Tiny Agents', a ? 'Bash · npm test (test alert)' : 'Test alert', a?.id ?? '', true);
   });
-  soundBtn.addEventListener('click', () => {
-    ux.sound = !ux.sound;
+  aiBtn.addEventListener('click', () => setAi(!(engine.state === 'loading' || engine.state === 'ready')));
+  engine.onChange(render);
+  if (aiWanted()) {
+    setAi(true);
+  }
+  for (const b of audioBtns) {
+    b.addEventListener('click', () => {
+      const key = b.dataset.set as AudioSwitch;
+      ux[key] = !ux[key];
+      saveUx();
+      applyAudio();
+      applyMusic();
+      render();
+      if (key === 'chimes' && ux.chimes) {
+        playCue('bell');
+      }
+    });
+  }
+  for (const b of speeds) {
+    b.addEventListener('click', () => {
+      ux.timeSpeed = Number(b.dataset.speed);
+      saveUx();
+      app.timeSpeed(ux.timeSpeed);
+      render();
+    });
+  }
+  for (const el of sliders) {
+    el.addEventListener('input', () => {
+      ux[el.dataset.vol as AudioVolume] = Number(el.value) / 100;
+      saveUx();
+      applyAudio();
+    });
+    el.addEventListener('change', () => el.dataset.vol === 'chimesVol' && playCue('bell'));
+  }
+  panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((tab) =>
+    tab.addEventListener('click', () => {
+      panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((t) => t.classList.toggle('on', t === tab));
+      panel.querySelectorAll<HTMLElement>('[data-pane]').forEach((p) => (p.hidden = p.dataset.pane !== tab.dataset.tab));
+    }),
+  );
+  snowBtn.addEventListener('click', () => {
+    ux.snow = !ux.snow;
     saveUx();
     render();
-    playCue('bell');
-  });
-  musicBtn.addEventListener('click', () => {
-    ux.music = !ux.music;
-    saveUx();
-    applyMusic();
-    render();
-  });
-  volume.addEventListener('input', () => {
-    ux.volume = Number(volume.value) / 100;
-    saveUx();
-    applyMusic();
   });
   fullscreen.addEventListener('change', () => {
     ux.fullscreen = fullscreen.checked;

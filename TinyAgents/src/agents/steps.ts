@@ -112,7 +112,7 @@ export function walkTo(d: Director, target: Target, status?: string): Step {
             return false;
           }
           const there = a.tx === target.x && a.ty === target.y;
-          const adjacent = Math.abs(a.tx - target.x) + Math.abs(a.ty - target.y) === 1;
+          const adjacent = d.nav.connected(a.tx, a.ty, target.x, target.y);
           if (sit && (there || adjacent)) {
             if (there) {
               a.seatExit = null;
@@ -223,9 +223,18 @@ export function hangout(o: HangoutOpts): Step {
   };
 }
 
-/** Ends a step early (e.g. a walk that no longer has a reason) once `stop` holds. */
+/** Ends the task here (e.g. a walk that no longer has a reason) once `stop` holds: the steps after it are dropped too. */
 export function unless(step: Step, stop: (a: Agent) => boolean): Step {
-  return { ...step, tick: (a, dt) => stop(a) || step.tick(a, dt) };
+  return {
+    ...step,
+    tick(a, dt) {
+      if (stop(a)) {
+        a.task?.steps.splice(1);
+        return true;
+      }
+      return step.tick(a, dt);
+    },
+  };
 }
 
 export function pause(seconds: number, status?: string, locked = false): Step {

@@ -416,9 +416,11 @@ export class Renderer<A extends AgentView = AgentView> {
       below.camera = this.camera;
       below.lift = u.lift;
       below.stacked = i > 0;
-      below.lighting.fixedHour = this.lighting.fixedHour;
+      below.lighting.clock = this.lighting.clock;
       below.lighting.forcedHour = this.lighting.forcedHour;
       below.liftOpen = u.liftOpen;
+      below.selected = this.selected;
+      below.hovered = this.hovered;
       below.render(u.office, u.agents, u.cars, undefined, u.layers);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     });
@@ -530,7 +532,7 @@ export class Renderer<A extends AgentView = AgentView> {
       layer.screen?.(ctx, toScreen, s);
     }
     const label = this.hovered ?? this.selected;
-    if (label && label.alpha > 0) {
+    if (label && label.alpha > 0 && agents.includes(label)) {
       this.drawLabel(label, tx, ty, s);
     }
   }

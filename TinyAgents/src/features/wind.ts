@@ -6,11 +6,10 @@ import { lawnBlades } from '../art/outdoor';
 import { Office } from '../world/office';
 
 /**
- * Wind pose 0..2 at world px (x, y): a slow breeze rolling across the map from the west, with an occasional
- * stronger gust. Shared by the lawn blades here and the pond's reeds.
+ * Wind pose 0..2 at world px (x, y) and time `t` (s): a slow breeze rolling across the map from the west, with an
+ * occasional stronger gust. Shared by the lawn blades here and the pond's reeds.
  */
-export function windPose(x: number, y: number): number {
-  const t = performance.now() / 1000;
+export function windPose(x: number, y: number, t = performance.now() / 1000): number {
   const breeze = 0.5 + 0.5 * Math.sin(t * 0.9 - x * 0.021 - y * 0.009);
   const gust = Math.max(0, Math.sin(t * 0.19 - x * 0.0035)) ** 8;
   const s = breeze * 0.85 + gust * 1.4;
@@ -77,6 +76,7 @@ registerExtension((director) => {
         rows = lawnOf(office);
       }
       push(-1e6 + 2, (ctx) => {
+        const t = performance.now() / 1000;
         const y0 = Math.max(0, Math.floor(view.y / TILE));
         const y1 = Math.min(rows.length - 1, Math.floor((view.y + view.h) / TILE) + 1);
         for (let ty = y0; ty <= y1; ty++) {
@@ -84,7 +84,7 @@ registerExtension((director) => {
             if (b.x < view.x - 4 || b.x > view.x + view.w + 4) {
               continue;
             }
-            const part = lawnBlades(b.shade, windPose(b.x, b.y));
+            const part = lawnBlades(b.shade, windPose(b.x, b.y, t));
             ctx.drawImage(part.canvas, b.x + part.x, b.y + part.y);
           }
         }

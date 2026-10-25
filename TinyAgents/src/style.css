@@ -352,7 +352,7 @@ body.editing #zoomCtl {
   position: fixed;
   top: 72px;
   right: 12px;
-  width: 330px;
+  width: 400px;
   max-height: calc(100vh - 84px);
   overflow-y: auto;
   padding: 12px;
@@ -360,6 +360,7 @@ body.editing #zoomCtl {
 
 .ap-head {
   display: flex;
+  align-items: flex-start;
   gap: 12px;
   position: relative;
 }
@@ -421,6 +422,46 @@ body.editing #zoomCtl {
 .ap-name:focus {
   outline: none;
   border-bottom-color: var(--accent);
+}
+
+div.ap-name {
+  border-bottom: 0;
+}
+
+.ap-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ap-needs {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ap-need-bar {
+  height: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--frame);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ap-need-bar div {
+  height: 100%;
+  width: 0;
+}
+
+.ap-fixed {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
 }
 
 .ap-role {
@@ -1425,6 +1466,31 @@ body.editing .fs-tools {
   border-top: 1px solid var(--line);
 }
 
+.st-speeds {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.st-speeds button {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 0;
+}
+
+.st-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+
+#settings [data-vol] {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
 .st-row > div {
   flex: 1;
   min-width: 0;
@@ -1438,6 +1504,8 @@ body.editing .fs-tools {
 }
 
 .st-row > button,
+.st-tabs button,
+.st-speeds button,
 #replay button {
   background: var(--panel-2);
   border: 2px solid var(--frame);
@@ -1449,11 +1517,15 @@ body.editing .fs-tools {
 }
 
 .st-row > button:hover,
+.st-tabs button:hover,
+.st-speeds button:hover,
 #replay button:hover {
   background: var(--hover);
 }
 
 .st-row > button.on,
+.st-tabs button.on,
+.st-speeds button.on,
 #replay button.on {
   background: var(--accent);
   color: var(--accent-ink);
@@ -1883,7 +1955,101 @@ body.ambient-idle #world {
   height: 14px;
 }
 
-#timeSlider input {
-  width: 200px;
+/* the day as a bar of sky colours (night, dawn, day, dusk) with a dot at the running time */
+.time-bar {
+  position: relative;
+  display: block;
+  width: 240px;
+  height: 14px;
+  border: 2px solid var(--frame);
+  border-radius: 7px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.time-bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.time-dot {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  background: #fbf7ec;
+  border: 2px solid var(--frame);
+  border-radius: 50%;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+#weatherBtn {
+  min-width: 34px;
+  padding: 4px 8px;
+}
+
+.st-ai-bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 4px;
   accent-color: var(--accent);
+}
+
+.ap-mind {
+  margin-top: 12px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 2px solid var(--frame);
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ap-mind-row {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  column-gap: 8px;
+  padding: 4px 0;
+}
+
+.ap-mind-row + .ap-mind-row {
+  border-top: 1px solid var(--line);
+}
+
+.ap-mind-k {
+  grid-row: span 2;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-top: 2px;
+}
+
+.ap-mind-v {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.ap-mind-row small,
+.ap-mind-off {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* AI staff loading in the background */
+#mindChip {
+  position: fixed;
+  top: 64px;
+  left: 16px;
+  z-index: 2;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 2px solid var(--frame);
+  border-radius: 3px;
+  pointer-events: none;
 }

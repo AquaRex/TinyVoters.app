@@ -87,6 +87,8 @@ export type Act = 'idle' | 'type' | 'talk' | 'phone' | 'wave' | 'read' | 'drink'
 const STRIDE = 5.4;
 
 export class Agent {
+  /** Called for every line anyone says (AI staff listen for their names). */
+  static onSay: ((a: Agent, text: string, icon?: string) => void) | null = null;
   readonly id: string;
   info: AgentInfo;
   role: Profession;
@@ -128,6 +130,8 @@ export class Agent {
   /** seconds of coffee left in the mug (0 = no mug) */
   mug = 0;
   bubble: { text: string; icon?: string; t: number } | null = null;
+  /** the last thing this person said, with performance.now() */
+  said: { text: string; at: number; icon?: string } | null = null;
   pendingSay: { text: string; delay: number; seconds: number } | null = null;
 
   task: Task | null = null;
@@ -241,9 +245,11 @@ export class Agent {
     this.seg = null;
   }
 
-  say(text: string, seconds = 2.6): void {
-    this.bubble = { text, t: seconds };
+  say(text: string, seconds = 2.6, icon?: string): void {
+    this.bubble = { text, icon, t: seconds };
     this.speakT = Math.min(seconds, 2);
+    this.said = { text, at: performance.now(), icon };
+    Agent.onSay?.(this, text, icon);
   }
 
   sayLater(text: string, delay: number, seconds = 2.4): void {

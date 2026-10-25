@@ -2,3 +2,5 @@ node_modules
 dist
 # purchased tilesets, inspiration only: licensed, never published
 AssetPacks
+# AI staff model weights (hundreds of MB; one file is over GitHub's 100 MB limit): hosted separately
+public/models

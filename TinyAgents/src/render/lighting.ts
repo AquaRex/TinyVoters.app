@@ -47,6 +47,47 @@ export function skyAt(hour: number): Sky {
   return { outdoor: mix(o0, o1), indoor: mix(n0, n1), night: k0 + (k1 - k0) * t };
 }
 
+/**
+ * The time of day: the local clock, or a game clock started at an hour picked on the time bar that keeps running
+ * from there at `speed` (0 holds it still).
+ */
+export class DayClock {
+  speed = 1;
+  private anchor: { hour: number; at: number } | null = null;
+
+  /** Whether the game clock runs instead of the local clock. */
+  get manual(): boolean {
+    return this.anchor !== null;
+  }
+
+  get hour(): number {
+    if (this.anchor) {
+      const h = this.anchor.hour + ((performance.now() - this.anchor.at) / 3600000) * this.speed;
+      return ((h % 24) + 24) % 24;
+    }
+    const d = new Date();
+    return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+  }
+
+  /** Runs the game clock from `hour`, or follows the local clock again (null). */
+  set(hour: number | null): void {
+    this.anchor = hour === null ? null : { hour, at: performance.now() };
+  }
+
+  setSpeed(speed: number): void {
+    if (this.anchor) {
+      this.anchor = { hour: this.hour, at: performance.now() };
+    }
+    this.speed = speed;
+  }
+}
+
+/** The sky's colour through the day, for the time bar: night, dawn, day, dusk (same hours as KEYS). */
+export const SKY_COLORS: [number, string][] = [
+  [0, '#1d2747'], [5, '#1d2747'], [6.5, '#e3896a'], [8, '#8ec7ea'], [17, '#8ec7ea'], [18.5, '#f0a050'], [20, '#5a4c88'],
+  [21.5, '#1d2747'], [24, '#1d2747'],
+];
+
 interface PlacedLight {
   x: number;
   y: number;
@@ -84,8 +125,8 @@ export function registerLightSource(source: LightSource): void {
  * light reads as pixels, not blur. Rebuilt only when the hour bucket, layout or lights change.
  */
 export class Lighting {
-  /** Hour picked with the time slider; null follows the local clock. */
-  fixedHour: number | null = null;
+  /** The time of day the light follows; floors drawn below share the one on screen. */
+  clock = new DayClock();
   /** Forced hour from ?time=, overriding everything. */
   forcedHour: number | null = null;
   private mul: HTMLCanvasElement | null = null;
@@ -104,11 +145,7 @@ export class Lighting {
     if (this.forcedHour !== null) {
       return this.forcedHour;
     }
-    if (this.fixedHour !== null) {
-      return this.fixedHour;
-    }
-    const d = new Date();
-    return d.getHours() + d.getMinutes() / 60;
+    return this.clock.hour;
   }
 
   /** Rebuilds the light maps when the layout or the hour (2-minute steps) changed, at most 4 times a second. */

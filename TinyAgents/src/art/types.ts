@@ -110,6 +110,8 @@ export interface Variant {
   h: number;
   /** One string per footprint row: '#' blocks movement, '.' walkable, 's' walkable seat (paths avoid it). */
   mask: string[];
+  /** Footprint sides people can't cross (a toilet stall's partitions): its tiles are entered only from the other sides. */
+  closed?: Dir[];
   spots: Spot[];
   /**
    * Frames of parts. Static assets have one frame. Animated assets index frames by `anim`:

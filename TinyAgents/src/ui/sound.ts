@@ -2,25 +2,51 @@ import { ux } from './prefs';
 
 export type Cue = 'permission' | 'done' | 'bell' | 'celebrate' | 'click';
 
+export type Channel = 'music' | 'office' | 'chimes' | 'weather';
+const CHANNELS: Channel[] = ['music', 'office', 'chimes', 'weather'];
+/** Channel gain at 50% volume (the original loudness); 100% doubles it. */
+const BASE = 0.5;
+
 let ctx: AudioContext | null = null;
-let sfx: GainNode | null = null;
+let master: GainNode | null = null;
+const channels = new Map<Channel, GainNode>();
 
 /** The shared audio context, created on the first user gesture (browsers block audio before one). */
 export function audio(): AudioContext | null {
   return ctx;
 }
 
-/** Output bus for sound effects. */
-export function sfxBus(): GainNode | null {
-  return sfx;
+/** The output for one kind of sound (Settings > Audio), through the master volume. */
+export function channel(c: Channel): GainNode | null {
+  return channels.get(c) ?? null;
+}
+
+/** Applies Settings > Audio: the master volume, and each channel's switch and volume. */
+export function applyAudio(): void {
+  if (!ctx || !master) {
+    return;
+  }
+  const t = ctx.currentTime;
+  const on: Record<Channel, boolean> = { music: ux.music, office: ux.office, chimes: ux.chimes, weather: ux.weather };
+  const vol: Record<Channel, number> = { music: ux.volume, office: ux.officeVol, chimes: ux.chimesVol, weather: ux.weatherVol };
+  master.gain.setTargetAtTime(ux.master * 2, t, 0.05);
+  for (const [c, g] of channels) {
+    g.gain.setTargetAtTime(on[c] ? vol[c] * 2 * BASE : 0, t, 0.05);
+  }
 }
 
 function unlock(): void {
   if (!ctx) {
     ctx = new AudioContext();
-    sfx = ctx.createGain();
-    sfx.gain.value = 0.5;
-    sfx.connect(ctx.destination);
+    master = ctx.createGain();
+    master.connect(ctx.destination);
+    for (const c of CHANNELS) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(master);
+      channels.set(c, g);
+    }
+    applyAudio();
   }
   if (ctx.state === 'suspended') {
     void ctx.resume();
@@ -30,8 +56,9 @@ for (const ev of ['pointerdown', 'keydown', 'touchend']) {
   window.addEventListener(ev, unlock, { capture: true });
 }
 
-/** A short enveloped tone on the effects bus. */
+/** A short enveloped tone (on the chimes channel unless `out` is given). */
 export function tone(freq: number, at: number, dur: number, gain: number, type: OscillatorType = 'sine', out?: AudioNode): void {
+  const sfx = channel('chimes');
   if (!ctx || !sfx) {
     return;
   }
@@ -49,7 +76,7 @@ export function tone(freq: number, at: number, dur: number, gain: number, type: 
 }
 
 let noiseBuf: AudioBuffer | null = null;
-/** One second of white noise, shared by clacks, hats and crackle. */
+/** One second of white noise, shared by UI clicks and the music's hats and snare. */
 export function noise(): AudioBuffer {
   if (!noiseBuf) {
     noiseBuf = ctx!.createBuffer(1, ctx!.sampleRate, ctx!.sampleRate);
@@ -63,6 +90,7 @@ export function noise(): AudioBuffer {
 
 /** A filtered noise burst (key clack, hat). */
 export function burst(at: number, dur: number, gain: number, freq: number, out?: AudioNode): void {
+  const sfx = channel('chimes');
   if (!ctx || !sfx) {
     return;
   }
@@ -81,9 +109,9 @@ export function burst(at: number, dur: number, gain: number, freq: number, out?:
   src.stop(t + dur + 0.02);
 }
 
-/** Play a UI/office sound cue; does nothing while sound is off or before the first user gesture. */
+/** Play a chime; does nothing while chimes are off or before the first user gesture. */
 export function playCue(cue: Cue): void {
-  if (!ux.sound || !ctx) {
+  if (!ux.chimes || !ctx) {
     return;
   }
   switch (cue) {

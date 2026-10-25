@@ -1,11 +1,13 @@
-import type { SpotRef } from '../world/office';
+import { DIR_STEP, Office, type SpotRef } from '../world/office';
 import type { Agent, AgentInfo, Step, Task } from './agent';
 import type { Director } from './director';
 import { pickFrom } from './professions';
 import { Conversation } from './social';
 import type { Staff } from './staff';
+import { Tile } from './nav';
 import { call, defer, hangout } from './steps';
 import { EDIT_TOOLS, track } from './toolPlaces';
+import { aiOn, remark } from '../mind/brain';
 
 /**
  * Why a team meets: work being split up (a lead delegates to subagents), planned (plan mode, a planning tool), or
@@ -44,6 +46,10 @@ export interface Meeting {
   seatedAt: Map<Agent, number>;
   created: number;
   print: boolean;
+  /** the seat each invited person is meant to take */
+  seatOf: Map<Agent, SpotRef>;
+  /** printed handouts lying on the table, by owner, at the seat they lie in front of */
+  sheets: Map<Agent, SpotRef>;
 }
 
 /**
@@ -106,7 +112,7 @@ export class Meetings {
     for (const m of this.list) {
       this.gather(m);
     }
-    this.list = this.list.filter((m) => !m.conv.done);
+    this.list = this.list.filter((m) => !m.conv.done || (m.sheets.size > 0 && this.time - m.created < 300));
   }
 
   private subsOf(lead: Agent): Agent[] {
@@ -160,9 +166,16 @@ export class Meetings {
     const invited = people.slice(0, room.seats.length);
     const conv = new Conversation('meeting', invited, this.time + JOIN_BY, room.d.rand, TOPICS[reason]);
     room.d.convs.push(conv);
-    const m: Meeting = { reason, lead, room, conv, invited, joined: new Set(), seatedAt: new Map(), created: this.time, print: !!lead && reason !== 'summary' && room.d.rand() < 0.5 };
+    const m: Meeting = {
+      reason, lead, room, conv, invited, joined: new Set(), seatedAt: new Map(), created: this.time,
+      print: !!lead && reason !== 'summary' && room.d.rand() < 0.5,
+      seatOf: new Map(invited.map((a, i) => [a, room.seats[i]])),
+      sheets: new Map(),
+    };
     this.list.push(m);
-    anchor.say(OPENERS[reason], 2.4);
+    if (!aiOn()) {
+      anchor.say(OPENERS[reason], 2.4);
+    }
     this.gather(m);
     return m;
   }
@@ -218,7 +231,11 @@ export class Meetings {
         continue;
       }
       a.task = task;
-      if (a !== (m.lead ?? m.invited[0]) && !a.bubble && a.rand() < 0.6) {
+      const host = m.lead ?? m.invited[0];
+      if (a !== host && remark(a, `${host.name} calls you to a ${m.reason === 'social' ? '' : m.reason + ' '}meeting.`)) {
+        continue;
+      }
+      if (a !== host && !a.bubble && a.rand() < 0.6) {
         a.sayLater(pickFrom(['coming!', 'ok!', 'on my way', 'sure'], a.rand), 0.6 + a.rand(), 1.8);
       }
     }
@@ -249,10 +266,11 @@ export class Meetings {
 
   private task(m: Meeting, a: Agent): Task | null {
     const { room, conv } = m;
-    const seat = room.seats.find((s) => room.d.isFree(s.key, a));
+    const seat = [m.seatOf.get(a), ...room.seats].find((s) => s && room.d.isFree(s.key, a));
     if (!seat) {
       return null;
     }
+    m.seatOf.set(a, seat);
     room.d.hold(a, seat.key);
     const target = { x: seat.x, y: seat.y, spot: seat };
     const label = LABELS[m.reason];
@@ -267,10 +285,7 @@ export class Meetings {
           ...there,
           { status: 'Printing handouts', begin: (x) => x.say('handouts...', 1.8), tick: (_x, dt) => (left -= dt) <= 0 },
           call(() => (t.carry = 'papers')),
-          defer((x) => {
-            const free = room.seats.find((s) => room.d.isFree(s.key, x));
-            return free ? x.floor.routeTo(x, room.d, { x: free.x, y: free.y, spot: free }, label) : null;
-          }),
+          defer((x) => this.handOut(m, x, label)),
         ];
       }
     }
@@ -282,9 +297,15 @@ export class Meetings {
       call((x) => {
         x.conv = conv;
         m.seatedAt.set(x, this.time);
+        const mine = room.seats.find((s) => s.x === x.tx && s.y === x.ty);
+        if (mine) {
+          m.seatOf.set(x, mine);
+        }
+        if (mine && (m.sheets.has(x) || t.carry === 'papers')) {
+          m.sheets.set(x, mine);
+        }
         if (t.carry === 'papers') {
           t.carry = null;
-          x.say('handouts!', 1.8);
         }
         if (m.reason === 'summary' && t.carry === 'folder') {
           t.carry = null;
@@ -292,11 +313,110 @@ export class Meetings {
         }
       }),
       hangout({ seconds: 5, act: 'idle', gains: { social: 0.5, energy: 0.1 }, until: (x) => x.conv === conv && !conv.done && !this.mustLeave(m, x) }),
+      call((x) => this.takeSheet(m, x)),
     );
+    if (a === m.lead && m.print) {
+      steps.push(defer((x) => this.collect(m, x)));
+    }
     if (a.leaving) {
       steps.push(defer((x) => x.floor.travel.departure(x)));
     }
     const kind = a.leaving ? 'leave' : this.excused(m, a) ? 'work' : 'meeting';
-    return { kind, label, activity: 'meeting', steps, started: false, cleanup: () => t.carry === 'papers' && (t.carry = null) };
+    const cleanup = () => {
+      if (t.carry === 'papers') {
+        t.carry = null;
+      }
+      this.takeSheet(m, a);
+    };
+    return { kind, label, activity: 'meeting', steps, started: false, cleanup };
   }
+
+  /**
+   * The lead with the printed handouts walks round the table giving each attendee a sheet (into their hands when
+   * they're seated, onto the table at their seat when they aren't there yet), nearest first, then sits down.
+   */
+  private handOut(m: Meeting, lead: Agent, label: string): Step[] | null {
+    const { room } = m;
+    const owed = m.conv.done ? [] : m.conv.members.filter((o) => o !== lead && !m.sheets.has(o) && m.seatOf.has(o));
+    const from: Tile = lead.floor === room.d ? [lead.tx, lead.ty] : [room.seats[0].x, room.seats[0].y];
+    const next = owed.sort((p, q) => dist(m.seatOf.get(p)!, from) - dist(m.seatOf.get(q)!, from))[0];
+    if (!next) {
+      const seat = [m.seatOf.get(lead), ...room.seats].find((s) => s && room.d.isFree(s.key, lead));
+      if (!seat) {
+        return null;
+      }
+      m.seatOf.set(lead, seat);
+      room.d.hold(lead, seat.key);
+      return lead.floor.routeTo(lead, room.d, { x: seat.x, y: seat.y, spot: seat }, label);
+    }
+    const seat = m.seatOf.get(next)!;
+    const stand = besideSeat(room.d, seat);
+    const walk = stand && lead.floor.routeTo(lead, room.d, { x: stand[0], y: stand[1] }, 'Handing out papers');
+    if (!walk) {
+      m.sheets.set(next, seat);
+      return this.handOut(m, lead, label);
+    }
+    let left = 0.9;
+    const [sx, sy] = Office.footPoint(seat.x, seat.y);
+    const hand: Step = {
+      status: 'Handing out papers',
+      begin: (x) => {
+        m.conv.arrive(x);
+        x.face(sx + (seat.px ?? 0), sy + (seat.py ?? 0));
+        x.waveT = 0.7;
+        const there = next.seated && next.floor === room.d && next.tx === seat.x && next.ty === seat.y;
+        if (there && !aiOn()) {
+          x.say(pickFrom(['here you go', 'your copy', 'for you'], x.rand), 1.6);
+          next.sayLater(pickFrom(['thanks!', 'ta', 'cheers'], next.rand), 0.7, 1.4);
+        }
+      },
+      tick: (_x, dt) => {
+        left -= dt;
+        if (left > 0) {
+          return false;
+        }
+        m.sheets.set(next, m.seatOf.get(next) ?? seat);
+        return true;
+      },
+    };
+    return [...walk, hand, defer((x) => this.handOut(m, x, label))];
+  }
+
+  /** Someone who sat in on the meeting picks up their sheet to take back to the desk. */
+  private takeSheet(m: Meeting, a: Agent): void {
+    if (m.sheets.has(a) && m.seatedAt.has(a)) {
+      m.sheets.delete(a);
+      track(a).carry = 'sheet';
+    }
+  }
+
+  /** After the meeting the lead gathers the sheets of people who never came. */
+  private collect(m: Meeting, lead: Agent): Step[] | null {
+    const left = [...m.sheets].find(([o]) => !m.seatedAt.has(o) && (m.conv.done || !m.conv.members.includes(o)));
+    if (!left || lead.floor !== m.room.d) {
+      return null;
+    }
+    const [owner, seat] = left;
+    const stand = besideSeat(m.room.d, seat);
+    const walk = stand ? lead.floor.routeTo(lead, m.room.d, { x: stand[0], y: stand[1] }, 'Collecting handouts') : [];
+    const [sx, sy] = Office.footPoint(seat.x, seat.y);
+    return [
+      ...(walk ?? []),
+      call((x) => {
+        x.face(sx, sy);
+        m.sheets.delete(owner);
+        track(x).carry = 'sheet';
+      }),
+      defer((x) => this.collect(m, x)),
+    ];
+  }
+}
+
+const dist = (s: SpotRef, [x, y]: Tile) => Math.abs(s.x - x) + Math.abs(s.y - y);
+
+/** A plain floor tile behind or beside a seat (not the table side), where someone stands to hand over a sheet. */
+function besideSeat(d: Director, seat: SpotRef): Tile | null {
+  const [fx, fy] = DIR_STEP[seat.facing];
+  const sides: Tile[] = [[seat.x - fx, seat.y - fy], [seat.x + fy, seat.y + fx], [seat.x - fy, seat.y - fx]];
+  return sides.find(([x, y]) => d.nav.open(x, y) && d.nav.roomOf(x, y) === d.nav.roomOf(seat.x, seat.y)) ?? null;
 }

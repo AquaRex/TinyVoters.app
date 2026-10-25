@@ -1,4 +1,5 @@
 import { floor } from '../art/registry';
+import { Dir } from '../config';
 import { Office } from '../world/office';
 
 export type Tile = [number, number];
@@ -23,6 +24,8 @@ export class Nav {
   cost = new Float32Array(0);
   room = new Int32Array(0);
   doorTile = new Uint8Array(0);
+  /** Per tile, the sides people can't cross (bits from SIDE): stall partitions. */
+  closed = new Uint8Array(0);
   w = 0;
   h = 0;
 
@@ -39,15 +42,20 @@ export class Nav {
     const n = o.w * o.h;
     this.cost = new Float32Array(n);
     this.doorTile = new Uint8Array(n);
+    this.closed = new Uint8Array(n);
     for (const item of o.layout.items) {
       const def = o.defOf(item);
-      const v = def?.door ? o.variantOf(item) : undefined;
-      if (v) {
-        for (let dy = 0; dy < v.h; dy++) {
-          for (let dx = 0; dx < v.w; dx++) {
-            if (o.inBounds(item.x + dx, item.y + dy)) {
-              this.doorTile[(item.y + dy) * o.w + item.x + dx] = 1;
-            }
+      const v = def ? o.variantOf(item) : undefined;
+      if (!v || (!def!.door && !v.closed)) {
+        continue;
+      }
+      const sides = (v.closed ?? []).reduce((m, d) => m | SIDE[d], 0);
+      for (let dy = 0; dy < v.h; dy++) {
+        for (let dx = 0; dx < v.w; dx++) {
+          if (o.inBounds(item.x + dx, item.y + dy)) {
+            const i = (item.y + dy) * o.w + item.x + dx;
+            this.doorTile[i] = def!.door ? 1 : this.doorTile[i];
+            this.closed[i] |= sides;
           }
         }
       }
@@ -91,7 +99,7 @@ export class Nav {
             continue;
           }
           const n = ny * w + nx;
-          if (this.room[n] !== -1 || !this.cost[n] || this.doorTile[n] || o.isOutdoor(nx, ny) !== outdoor) {
+          if (this.room[n] !== -1 || !this.cost[n] || this.doorTile[n] || o.isOutdoor(nx, ny) !== outdoor || !this.passable(c, n, dx, dy)) {
             continue;
           }
           this.room[n] = id;
@@ -108,6 +116,19 @@ export class Nav {
   /** A plain floor tile (not a seat or other slow tile). */
   open(x: number, y: number): boolean {
     return this.walkable(x, y) && this.office.cost[y * this.w + x] === 1;
+  }
+
+  /** Whether the side between tile index `c` and its neighbour `n` (one step dx, dy away) can be crossed. */
+  private passable(c: number, n: number, dx: number, dy: number): boolean {
+    return !(this.closed[c] & sideOf(dx, dy)) && !(this.closed[n] & sideOf(-dx, -dy));
+  }
+
+  /** Whether someone can step straight from one tile to a neighbouring one. */
+  connected(ax: number, ay: number, bx: number, by: number): boolean {
+    this.sync();
+    const dx = bx - ax;
+    const dy = by - ay;
+    return Math.abs(dx) + Math.abs(dy) === 1 && this.walkable(ax, ay) && this.walkable(bx, by) && this.passable(ay * this.w + ax, by * this.w + bx, dx, dy);
   }
 
   roomOf(x: number, y: number): number {
@@ -153,7 +174,7 @@ export class Nav {
         }
         const n = ny * w + nx;
         let c = n === goal ? 1 : this.cost[n];
-        if (!c) {
+        if (!c || !this.passable(cur, n, dx, dy)) {
           continue;
         }
         if (penalty && n !== goal) {
@@ -190,6 +211,9 @@ export class Nav {
     return out;
   }
 }
+
+const SIDE: Record<Dir, number> = { right: 1, left: 2, down: 4, up: 8 };
+const sideOf = (dx: number, dy: number): number => (dx > 0 ? SIDE.right : dx < 0 ? SIDE.left : dy > 0 ? SIDE.down : SIDE.up);
 
 export const NEIGHBORS: Tile[] = [
   [1, 0],

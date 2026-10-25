@@ -113,15 +113,18 @@ defineAsset({
         door(L(40), open);
       }),
     );
-    return makeVariant({
-      w: 1,
-      h: 1,
-      mask: ['s'],
-      spots: [{ dx: 0, dy: 0, facing: 'down', pose: 'sit', activity: 'toilet' }],
-      frames,
-      anim: { kind: 'door' },
-      shadows: [shadow(8, 18, 16, 8)],
-    });
+    return {
+      ...makeVariant({
+        w: 1,
+        h: 1,
+        mask: ['s'],
+        spots: [{ dx: 0, dy: 0, facing: 'down', pose: 'sit', activity: 'toilet' }],
+        frames,
+        anim: { kind: 'door' },
+        shadows: [shadow(8, 18, 16, 8)],
+      }),
+      closed: ['up', 'left', 'right'],
+    };
   },
 });
 

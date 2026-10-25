@@ -18,9 +18,10 @@ import { playCue } from '../ui/sound';
 import { Travel } from './travel';
 import { FRIEND, affinity, bond } from './relationships';
 import { outdoorAppeal, pizzaTime } from '../world/calendar';
-import { NPC_ROLES, itOnDuty, npcDef, npcTask } from './buildingStaff';
+import { NPC_ROLES, itOnDuty, npcChoices, npcDef, npcTask } from './buildingStaff';
 import { canteenLunch } from './canteen';
 import { roomAt, roomsOf } from './rooms';
+import { Choice, aiOn, noteTurn, opener, prefetch, remark, takeDecision, topicOf, wantsPrefetch } from '../mind/brain';
 
 interface ActivityDef {
   id: string;
@@ -61,6 +62,11 @@ const ACTIVITIES: ActivityDef[] = [
 ];
 
 const ACTIVITY_BY_ID = new Map(ACTIVITIES.map((d) => [d.id, d]));
+/** How a free-time option reads in an AI worker's shortlist. */
+const CHOICE_LABEL: Record<string, string> = {
+  coffee: 'coffee', water: 'water', snack: 'a snack', eat: 'lunch', toilet: 'restroom', read: 'read a book',
+  whiteboard: 'sketch on the whiteboard', play: 'play foosball', relax: 'relax on the sofa', print: 'print something', park: 'walk in the park',
+};
 
 /** What a busy agent does about a pressing need, best first. */
 const MICRO_BREAK: Partial<Record<NeedId, string[]>> = {
@@ -72,6 +78,9 @@ const MICRO_BREAK: Partial<Record<NeedId, string[]>> = {
 
 const IDLE_KINDS: TaskKind[] = ['idle', 'fun', 'chat', 'outside', 'lunch'];
 
+/** AI staff desk banter: seconds between remarks on a floor (on average), and before the same two people banter again. */
+const BANTER_EVERY = 20;
+const BANTER_PAIR_GAP = 180;
 /** Thinking longer than this ends a tool streak (the person heads back to the desk). */
 const THINK_GRACE = 4;
 /** Seconds into a permission wait: walk over and ring the reception bell, then back to the desk on the phone. */
@@ -238,7 +247,9 @@ export class Director {
         authentication_failed: 'locked out?!',
         billing_error: 'uh oh, billing',
       };
-      a.say(lines[now.error ?? ''] ?? 'hmm, that failed', 3);
+      if (!remark(a, `Your work hit an error (${(now.error ?? 'it failed').replace(/_/g, ' ')}).`)) {
+        a.say(lines[now.error ?? ''] ?? 'hmm, that failed', 3);
+      }
       if (now.error === 'rate_limit' || now.error === 'overloaded') {
         a.chain = 'coffee';
       }
@@ -246,7 +257,10 @@ export class Director {
     } else if (now.state === 'compacting' && was.state !== 'compacting') {
       a.say('tidying my notes', 2.5);
     } else if (now.state === 'idle' && (was.state === 'thinking' || was.state === 'tool')) {
-      a.say(this.rand() < 0.5 ? 'done!' : 'all yours', 2);
+      noteTurn(a);
+      if (!remark(a, 'You just finished your work task.')) {
+        a.say(this.rand() < 0.5 ? 'done!' : 'all yours', 2);
+      }
     } else if (now.tool && (now.tool === 'Agent' || now.tool === 'Task') && was.tool !== now.tool) {
       a.say('calling in help', 2);
     }
@@ -468,7 +482,8 @@ export class Director {
   /** Local avoidance: a tile is taken while someone stands, sits or is stepping on it. */
   canEnter(a: Agent, x: number, y: number): boolean {
     for (const b of this.agents) {
-      if (b === a || b.hidden || b.alpha <= 0) {
+      // people fading into or out of the stairwell or the lift are mid-step, not in the way: others follow right behind
+      if (b === a || b.hidden || b.alpha < 1) {
         continue;
       }
       if ((b.tx === x && b.ty === y) || (b.seg && b.seg[0] === x && b.seg[1] === y)) {
@@ -586,7 +601,7 @@ export class Director {
   private giveWay(a: Agent, b: Agent): boolean {
     const [first, second] = a.id < b.id ? [a, b] : [b, a];
     for (const [y, p] of [[first, second], [second, first]]) {
-      if (y.locked || y.seated || !y.path.length) {
+      if (y.locked || y.seated || !y.path.length || y.seg) {
         continue;
       }
       const tile = this.sideTile(y, y.path[0], p, p.path.slice(0, 3));
@@ -626,7 +641,7 @@ export class Director {
   private sideTile(who: Agent, ahead: Tile, other: Agent, avoid: Tile[] = []): Tile | undefined {
     const blocked: Tile[] = [ahead, ...other.path.slice(0, 1), ...avoid, [other.tx, other.ty], ...[...this.yields.values()].map((w) => w.from)];
     return NEIGHBORS.map(([dx, dy]): Tile => [who.tx + dx, who.ty + dy])
-      .filter(([x, y]) => this.nav.open(x, y) && this.canEnter(who, x, y) && !blocked.some(([px, py]) => px === x && py === y))
+      .filter(([x, y]) => this.nav.open(x, y) && this.nav.connected(who.tx, who.ty, x, y) && this.canEnter(who, x, y) && !blocked.some(([px, py]) => px === x && py === y))
       .sort((p, q) => +this.passage(p[0], p[1]) - +this.passage(q[0], q[1]))[0];
   }
 
@@ -652,10 +667,10 @@ export class Director {
   /** The tile to step onto when getting up from a seat. */
   exitTile(a: Agent): Tile {
     const back = a.seatExit;
-    if (back && this.nav.open(back[0], back[1])) {
+    if (back && this.nav.open(back[0], back[1]) && ((back[0] === a.tx && back[1] === a.ty) || this.nav.connected(a.tx, a.ty, back[0], back[1]))) {
       return back;
     }
-    const n = NEIGHBORS.map(([dx, dy]): Tile => [a.tx + dx, a.ty + dy]).find(([x, y]) => this.nav.open(x, y));
+    const n = NEIGHBORS.map(([dx, dy]): Tile => [a.tx + dx, a.ty + dy]).find(([x, y]) => this.nav.open(x, y) && this.nav.connected(a.tx, a.ty, x, y));
     return n ?? this.office.nearestWalkable(a.tx, a.ty);
   }
 
@@ -742,6 +757,9 @@ export class Director {
         }
       }
       this.review(a);
+      if (a.arrived && !a.leaving && !a.info.busy && !a.info.waiting && a.task && IDLE_KINDS.includes(a.task.kind) && wantsPrefetch(a)) {
+        prefetch(a, a.npc ? npcChoices(this, a) : this.idleChoices(a).slice(0, 3));
+      }
       if (!a.task && this.time >= a.decideAt) {
         this.decide(a);
       }
@@ -755,6 +773,7 @@ export class Director {
     if (this.socialClock >= 0.5) {
       this.socialClock = 0;
       this.greetings();
+      this.deskBanter();
       this.startConversations();
       this.maybeMeeting();
     }
@@ -932,7 +951,8 @@ export class Director {
     } else if (!a.arrived) {
       task = this.task('arrive', 'Arriving', 'arrive', this.travel.arrival(a));
     } else if (a.npc) {
-      task = npcTask(this, a);
+      const pick = takeDecision(a, () => npcChoices(this, a));
+      task = pick === 'wait' ? this.thinkTask() : pick ?? npcTask(this, a);
     } else if ((a.info.waiting || a.info.busy) && a.homeFloor !== this && this.travel.connects(a.homeFloor)) {
       task = this.task(a.info.waiting ? 'wait' : 'work', 'Heading to the desk', 'home', this.travel.toFloor(a, a.homeFloor) ?? []);
     } else if (a.info.waiting) {
@@ -948,9 +968,15 @@ export class Director {
       task = def && pick ? this.activityTask(a, def, pick) : null;
     }
     if (!task && !a.info.busy && !a.info.waiting && !a.leaving && !a.npc) {
-      task = this.chooseIdle(a);
+      const pick = takeDecision(a, () => this.idleChoices(a).slice(0, 3));
+      task = pick === 'wait' ? this.thinkTask() : pick ?? this.chooseIdle(a);
     }
     a.task = task ?? this.task('idle', 'Looking around', 'pause', [hangout({ seconds: 1.5 + this.rand() * 2, chatty: true })]);
+  }
+
+  /** A beat in place while the agent's model decides what's next. */
+  private thinkTask(): Task {
+    return this.task('idle', 'Looking around', 'think', [pause(0.4)]);
   }
 
   task(kind: TaskKind, label: Task['label'], activity: string, steps: Step[], cleanup?: () => void): Task {
@@ -1107,7 +1133,7 @@ export class Director {
         }
         if ((quip -= dt) <= 0) {
           quip = 25 + this.rand() * 40;
-          if (!x.bubble && this.rand() < 0.5) {
+          if (!aiOn() && !x.bubble && this.rand() < 0.5) {
             x.say(x.info.state === 'thinking' ? '...' : toolPhrase(x.info.tool, x.info.detail), 2.2);
           }
         }
@@ -1352,7 +1378,7 @@ export class Director {
         }
         if ((quip -= dt) <= 0) {
           quip = 14 + this.rand() * 12;
-          if (!x.bubble) {
+          if (!aiOn() && !x.bubble) {
             x.say(toolPhrase(x.info.tool, x.info.detail), 2.2);
           }
         }
@@ -1575,7 +1601,18 @@ export class Director {
   }
 
   private chooseIdle(a: Agent): Task | null {
-    const options: { u: number; make: () => Task | null }[] = [];
+    for (const o of this.idleChoices(a).slice(0, 4)) {
+      const t = o.make();
+      if (t) {
+        return t;
+      }
+    }
+    return null;
+  }
+
+  /** What a free agent could do now, best first (the rule brain tries the top few; AI staff pick from the top 3). */
+  idleChoices(a: Agent): Choice[] {
+    const options: Choice[] = [];
     const style = this.lunchStyle(a);
     const lunch = this.lunchTime() && a.lunchDay !== this.day && style !== 'skip';
     for (const def of ACTIVITIES) {
@@ -1602,7 +1639,7 @@ export class Director {
         continue;
       }
       if (def.id === 'eat' && lunch && style !== 'kitchen') {
-        options.push({ u, make: () => (style === 'desk' ? this.deskLunch(a) : this.canteenLunch(a)) ?? this.kitchenLunch(a, def) });
+        options.push({ label: style === 'desk' ? 'lunch at your desk' : 'lunch in the canteen', u, make: () => (style === 'desk' ? this.deskLunch(a) : this.canteenLunch(a)) ?? this.kitchenLunch(a, def) });
         continue;
       }
       const pick = def.id === 'eat' && lunch ? this.spotsAnywhere(a, def.spots).find((p) => p.d === this) : this.findSpot(a, def);
@@ -1610,26 +1647,19 @@ export class Director {
         continue;
       }
       u -= (def.outdoor === 'only' ? this.distance(a, pick) - (pick.d === this ? 30 : 0) : this.distance(a, pick)) * 0.003;
-      options.push({ u, make: () => this.activityTask(a, def, pick) });
+      options.push({ label: def.id === 'eat' && !lunch ? 'a bite to eat' : CHOICE_LABEL[def.id] ?? def.id, u, make: () => this.activityTask(a, def, pick) });
     }
     if (this.deskFor(a)) {
       const u = (0.04 + a.traits.diligence * 0.12) * this.recency(a, 'desk') * (0.8 + this.rand() * 0.4);
-      options.push({ u, make: () => this.deskTask(a) });
+      options.push({ label: 'back to your desk', u, make: () => this.deskTask(a) });
     }
     const partner = this.chatPartner(a);
     if (partner) {
       const u = urgency(a.needs.social) * (0.3 + a.traits.sociability) * 1.1 * this.recency(a, 'chat');
-      options.push({ u, make: () => this.seekChat(a, partner) });
+      options.push({ label: aiOn() ? `chat with ${partner.name} about ${topicOf(partner)}` : `chat with ${partner.name}`, u: aiOn() ? Math.max(u, 0.2) : u, make: () => this.seekChat(a, partner) });
     }
-    options.push({ u: (0.05 + (1 - a.traits.diligence) * 0.04) * this.recency(a, 'wander'), make: () => this.wanderTask(a) });
-    options.sort((p, q) => q.u - p.u);
-    for (const o of options.slice(0, 4)) {
-      const t = o.make();
-      if (t) {
-        return t;
-      }
-    }
-    return null;
+    options.push({ label: 'stretch your legs', u: (0.05 + (1 - a.traits.diligence) * 0.04) * this.recency(a, 'wander'), make: () => this.wanderTask(a) });
+    return options.sort((p, q) => q.u - p.u);
   }
 
   /**
@@ -1854,13 +1884,18 @@ export class Director {
         }
         const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
         const last = a.greeted.get(key) ?? -Infinity;
-        if (this.time - last < 120) {
+        if (this.time - last < (aiOn() ? 300 : 120)) {
           continue;
         }
         a.greeted.set(key, this.time);
         b.greeted.set(key, this.time);
         const [g, o] = a.traits.sociability >= b.traits.sociability ? [a, b] : [b, a];
         if (this.rand() > 0.35 + g.traits.sociability * 0.6 || g.bubble) {
+          continue;
+        }
+        if (aiOn()) {
+          // minds open with something about what the other is doing or just said (or nothing at all)
+          opener(g, o);
           continue;
         }
         g.face(o.x, o.y);
@@ -1885,6 +1920,26 @@ export class Director {
     }
   }
 
+  /** AI staff: now and then someone at a desk says something to a colleague sitting nearby (about every 20 s per floor). */
+  private deskBanter(): void {
+    if (!aiOn() || this.rand() > 0.5 / BANTER_EVERY) {
+      return;
+    }
+    const seated = this.agents.filter((a) => a.seated && !a.hidden && !a.conv && !a.bubble && !a.info.waiting && !a.isSub);
+    const g = seated[Math.floor(this.rand() * seated.length)];
+    const o = g && seated.filter((b) => b !== g && g.tilesTo(b) <= 3).sort((p, q) => g.tilesTo(p) - g.tilesTo(q))[0];
+    if (!o) {
+      return;
+    }
+    const key = g.id < o.id ? `${g.id}|${o.id}` : `${o.id}|${g.id}`;
+    if (this.time - (g.greeted.get(key) ?? -Infinity) < BANTER_PAIR_GAP) {
+      return;
+    }
+    g.greeted.set(key, this.time);
+    o.greeted.set(key, this.time);
+    opener(g, o);
+  }
+
   private startConversations(): void {
     const avail = this.agents.filter((a) => this.chatAvailable(a));
     const taken = new Set<Agent>();
@@ -1902,7 +1957,7 @@ export class Director {
           continue;
         }
         const seeking = a.task?.activity === 'chat' || b.task?.activity === 'chat';
-        const p = seeking ? 0.7 : 0.05 * (a.traits.sociability + b.traits.sociability) * (0.5 + urgency(a.needs.social) + urgency(b.needs.social));
+        const p = (seeking ? 0.7 : 0.05 * (a.traits.sociability + b.traits.sociability) * (0.5 + urgency(a.needs.social) + urgency(b.needs.social))) * (aiOn() ? 2.5 : 1);
         if (this.rand() > p) {
           continue;
         }
@@ -1912,16 +1967,18 @@ export class Director {
           members.push(third);
         }
         members.forEach((m) => taken.add(m));
-        this.startConversation(members);
+        this.talk(members);
         break;
       }
     }
   }
 
-  private startConversation(members: Agent[]): void {
+  /** Starts a conversation among people standing or sitting together (optionally from lines already said). */
+  talk(members: Agent[], said: { who: Agent; text: string }[] = []): void {
     const seated = members.every((m) => m.seated);
     const kind: ConvKind = seated ? (members.some((m) => m.task?.activity === 'eat') ? 'lunch' : 'seated') : 'chat';
     const conv = new Conversation(kind, members, this.time + 4, this.rand);
+    conv.seed(said);
     this.convs.push(conv);
     for (const m of members) {
       m.conv = conv;

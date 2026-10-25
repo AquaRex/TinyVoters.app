@@ -12,5 +12,6 @@ import './nightShift';
 import './friends';
 import './workVisibility';
 import './staffGear';
+import './mindView';
 import './wind';
 import './pond';

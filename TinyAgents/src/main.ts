@@ -5,6 +5,7 @@ import { app, Floor } from './app';
 import { STOREY_H, TILE } from './config';
 import { Agent } from './agents/agent';
 import { OfficeStatus, visitToken, watchOffice } from './cloud/api';
+import { SKY_COLORS } from './render/lighting';
 import { Renderer } from './render/renderer';
 import { AgentPanel } from './ui/agentPanel';
 import { ConnectDialog } from './ui/connect';
@@ -18,7 +19,10 @@ import { initOfficeSound } from './ui/officeSound';
 import { initReplay } from './ui/replay';
 import { initReport, openBoardAt } from './ui/report';
 import { openSignAt } from './features/plaques';
+import { ux } from './ui/prefs';
 import { initSettings } from './ui/settings';
+import { initMindChip } from './ui/mindChip';
+import { toggleRain, Weather, weather } from './world/calendar';
 import { addFloor, floorOf, initFloors, removeBlocker, removeFloor, resetBuilding, routeInfos } from './world/floors';
 
 const PREFS_KEY = 'tiny-agents.prefs.v2';
@@ -110,29 +114,77 @@ setDemo(prefs.demo);
 
 const timeBtn = document.getElementById('timeBtn') as HTMLButtonElement;
 const timeCtl = timeBtn.parentElement!;
-const timeInput = document.querySelector<HTMLInputElement>('#timeSlider input')!;
-const hhmm = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
-/** Real time ("Clock"), or the hour picked on the slider. */
+const timeBar = document.querySelector<HTMLElement>('#timeSlider .time-bar')!;
+const timeDot = timeBar.querySelector<HTMLElement>('.time-dot')!;
+const clock = renderer.lighting.clock;
+const hhmm = (h: number) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}`;
+timeBar.style.background = `linear-gradient(to right, ${SKY_COLORS.map(([h, c]) => `${c} ${(h / 24) * 100}%`).join(', ')})`;
+/** Real time ("Clock"), or the game clock running on from the hour picked on the bar. */
 function setClock(on: boolean): void {
   prefs.clock = on;
-  renderer.lighting.fixedHour = on ? null : prefs.hour;
-  timeBtn.textContent = on ? 'Clock' : hhmm(prefs.hour);
+  clock.set(on ? null : prefs.hour);
   timeBtn.classList.toggle('on', on);
   timeCtl.classList.toggle('manual', !on);
-  timeInput.value = String(prefs.hour);
+}
+/** Snaps the game clock to the hour under the pointer (quarter hours); it runs on from there. */
+function pickTime(e: PointerEvent): void {
+  const r = timeBar.getBoundingClientRect();
+  prefs.hour = Math.min(23.75, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * 96) / 4));
+  setClock(false);
 }
 timeBtn.addEventListener('click', () => {
+  prefs.hour = clock.hour;
   setClock(!prefs.clock);
   savePrefs();
 });
-timeInput.addEventListener('input', () => {
-  prefs.hour = Number(timeInput.value);
-  setClock(false);
+timeBar.addEventListener('pointerdown', (e) => {
+  timeBar.setPointerCapture(e.pointerId);
+  timeCtl.classList.add('dragging');
+  pickTime(e);
 });
-timeInput.addEventListener('change', savePrefs);
-timeInput.addEventListener('pointerdown', () => timeCtl.classList.add('dragging'));
-window.addEventListener('pointerup', () => timeCtl.classList.remove('dragging'));
+timeBar.addEventListener('pointermove', (e) => timeBar.hasPointerCapture(e.pointerId) && pickTime(e));
+timeBar.addEventListener('pointerup', () => {
+  timeCtl.classList.remove('dragging');
+  savePrefs();
+});
+timeBar.addEventListener('keydown', (e) => {
+  const step = e.key === 'ArrowRight' ? 0.25 : e.key === 'ArrowLeft' ? -0.25 : 0;
+  if (step) {
+    prefs.hour = (Math.round(clock.hour * 4) / 4 + step + 24) % 24;
+    setClock(false);
+    savePrefs();
+  }
+});
+clock.setSpeed(ux.timeSpeed);
+app.timeSpeed = (speed) => {
+  clock.setSpeed(speed);
+  if (prefs.clock && speed !== 1) {
+    prefs.hour = clock.hour;
+    setClock(false);
+    savePrefs();
+  }
+};
 setClock(prefs.clock);
+// the running game clock picks up where it was after a reload
+window.setInterval(() => {
+  if (!prefs.clock) {
+    prefs.hour = clock.hour;
+    savePrefs();
+  }
+}, 5000);
+
+/** The clock button and bar follow the running time: the button shows it, the dot moves along the day. */
+function updateClock(): void {
+  const h = clock.hour;
+  timeBtn.textContent = prefs.clock ? 'Clock' : hhmm(h);
+  timeDot.style.left = `${(h / 24) * 100}%`;
+  timeBar.setAttribute('aria-valuenow', h.toFixed(2));
+  timeBar.setAttribute('aria-valuetext', hhmm(h));
+}
+
+const weatherBtn = document.getElementById('weatherBtn') as HTMLButtonElement;
+const WEATHER_GLYPH: Record<Weather, string> = { clear: '☀︎', rain: '☂︎', snow: '❄︎' };
+weatherBtn.addEventListener('click', toggleRain);
 document.getElementById('helpBtn')!.addEventListener('click', () => (help.hidden = !help.hidden));
 document.getElementById('zoomIn')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1));
 document.getElementById('zoomOut')!.addEventListener('click', () => renderer.zoomAt(window.innerWidth / 2, window.innerHeight / 2, -1));
@@ -152,6 +204,9 @@ function updateHud(): void {
   };
   officePill.textContent = labels[officeStatus];
   officePill.dataset.state = officeStatus;
+  const w = weather();
+  weatherBtn.textContent = WEATHER_GLYPH[w];
+  weatherBtn.classList.toggle('on', w !== 'clear');
   emptyHint.hidden = !(officeStatus === 'online' && claude === 0) || editor.active || prefs.demo || !!visitToken;
 }
 
@@ -182,13 +237,13 @@ function selectAgent(a: Agent): void {
     setEditMode(false);
   }
   const floor = floorOf(a);
-  if (floor) {
+  if (floor && !seenFrom(shown(), a)) {
     showFloor(floor);
   }
   renderer.selected = a;
   panel.open(a);
   renderer.camera.x = a.x;
-  renderer.camera.y = a.y - 24 - lifted(shown());
+  renderer.camera.y = a.y - 24 - lifted(floor ?? shown());
 }
 app.toast = toast;
 app.selectAgent = selectAgent;
@@ -203,6 +258,7 @@ initMusic();
 initReplay();
 initReport();
 initSettings();
+initMindChip();
 initAmbient();
 
 // ---------- input ----------
@@ -218,7 +274,29 @@ function tileAt(sx: number, sy: number): [number, number] {
 
 function agentAt(sx: number, sy: number): Agent | undefined {
   const [wx, wy] = renderer.screenToWorld(sx, sy);
-  return [...shown().director.agents].sort((a, b) => b.y - a.y).find((a) => a.alpha > 0.5 && a.hitTest(wx, wy));
+  const floor = shown();
+  const here = [...floor.director.agents].sort((a, b) => b.y - a.y).find((a) => a.alpha > 0.5 && a.hitTest(wx, wy));
+  if (here) {
+    return here;
+  }
+  for (const f of app.tower.floors.filter((g) => g.level < floor.level).reverse()) {
+    const dy = lifted(f) - lifted(floor);
+    const hit = [...f.director.agents].sort((a, b) => b.y - a.y).find((a) => a.alpha > 0.5 && seenFrom(floor, a) && a.hitTest(wx, wy + dy));
+    if (hit) {
+      return hit;
+    }
+  }
+  return undefined;
+}
+
+/** Someone on a lower floor shows on `floor` where they're outdoors and the storey above doesn't cover them. */
+function seenFrom(floor: Floor, a: Agent): boolean {
+  const own = floorOf(a);
+  if (!own || own === floor) {
+    return own === floor;
+  }
+  const above = Math.round((lifted(floor) - lifted(own)) / TILE);
+  return own.level < floor.level && own.office.isOutdoor(a.tx, a.ty) && !floor.office.floorAt(a.tx, a.ty + above) && !floor.office.wallAt(a.tx, a.ty + above);
 }
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -437,7 +515,7 @@ function lifted(f: Floor): number {
 function followSelected(): void {
   const a = renderer.selected;
   const at = a && !a.gone && panel.follow ? floorOf(a) : undefined;
-  if (at && at !== shown() && !app.override && !editor.active) {
+  if (a && at && at !== shown() && !seenFrom(shown(), a) && !app.override && !editor.active) {
     showFloor(at);
   }
 }
@@ -458,9 +536,9 @@ function frame(now: number): void {
   if (panel.follow && panel.agent) {
     const cam = renderer.camera;
     cam.x += (panel.agent.x - cam.x) * Math.min(1, dt * 4);
-    cam.y += (panel.agent.y - 24 - lifted(floor) - cam.y) * Math.min(1, dt * 4);
+    cam.y += (panel.agent.y - 24 - lifted(floorOf(panel.agent) ?? floor) - cam.y) * Math.min(1, dt * 4);
   }
-  if (renderer.selected && renderer.selected.floor !== floor.director) {
+  if (renderer.selected && renderer.selected.floor !== floor.director && !seenFrom(floor, renderer.selected)) {
     panel.close();
   }
   clampCamera();
@@ -473,6 +551,7 @@ function frame(now: number): void {
   roster.update(app.agents, renderer.selected);
   floorSwitch.update();
   updateHud();
+  updateClock();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

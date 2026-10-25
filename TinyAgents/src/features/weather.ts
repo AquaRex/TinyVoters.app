@@ -1,10 +1,11 @@
 import { app } from '../app';
 import { TILE } from '../config';
 import { registerExtension } from '../agents/director';
-import { bayer, fbm2, hash2, steel, water } from '../art/kit';
+import { bayer, dirt, fbm2, hash2, steel, water } from '../art/kit';
+import { drawFloorTile } from '../render/floorLayer';
 import { makeCanvas } from '../render/pixel';
 import { Rect } from '../render/renderer';
-import { Weather, weather } from '../world/calendar';
+import { Weather, snowSeason, weather } from '../world/calendar';
 import { Office } from '../world/office';
 import { itemsWith } from './shared';
 
@@ -15,6 +16,8 @@ interface Ground {
   /** outdoor tiles filled in one colour, for the rainy-day dimming */
   outdoor: HTMLCanvasElement;
   puddles: [number, number][];
+  /** how much sky each pixel reflects (white = all): the pond, and puddles when it rains; null with no water */
+  water: HTMLCanvasElement | null;
 }
 
 const SNOW = steel[6];
@@ -58,29 +61,84 @@ function snowCover(office: Office, heavy: boolean): HTMLCanvasElement {
   return c;
 }
 
-function puddleCover(office: Office, puddles: [number, number][]): HTMLCanvasElement {
+/** Paving and roads: rain splashes on them and leaves shallow clear puddles. */
+function hardGround(office: Office, x: number, y: number): boolean {
+  const f = office.floorAt(x, y) ?? '';
+  return office.drivable(x, y) || f === 'asphalt' || f.startsWith('paving');
+}
+
+/** Gravel and dirt paths: muddy puddles, no splashes. */
+function softPath(office: Office, x: number, y: number): boolean {
+  return (office.floorAt(x, y) ?? '').startsWith('path');
+}
+
+/**
+ * Wide, shallow puddles: a few overlapping ellipses each, a faint sheen of water on paving and roads, muddy on gravel.
+ * Each puddle also goes into `mask` (how much sky it reflects).
+ */
+function puddleCover(office: Office, puddles: [number, number][], mask: CanvasRenderingContext2D): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(office.w * TILE, office.h * TILE);
   for (let ty = 0; ty < office.h; ty++) {
     for (let tx = 0; tx < office.w; tx++) {
-      const f = office.floorAt(tx, ty) ?? '';
-      const hard = office.drivable(tx, ty) || f.startsWith('paving') || f.startsWith('path');
-      if (!office.isOutdoor(tx, ty) || !hard || hash2(tx, ty, 23) > 0.16) {
+      const hard = hardGround(office, tx, ty);
+      const mud = !hard && softPath(office, tx, ty);
+      if (!office.isOutdoor(tx, ty) || (!hard && !mud) || hash2(tx, ty, 23) > 0.2) {
         continue;
       }
-      const w = 10 + Math.floor(hash2(tx, ty, 24) * 10);
-      const h = 4 + Math.floor(hash2(tx, ty, 25) * 3);
-      const x = tx * TILE + Math.floor(hash2(tx, ty, 26) * (TILE - w));
-      const y = ty * TILE + 6 + Math.floor(hash2(tx, ty, 27) * (TILE - h - 8));
-      ellipse(ctx, x, y, w, h, water[2]);
-      ellipse(ctx, x + 1, y + 1, w - 2, h - 1, water[3]);
-      ctx.fillStyle = water[4];
-      ctx.fillRect(x + 3, y + 1, Math.max(2, Math.floor(w / 3)), 1);
-      ctx.fillStyle = water[5];
-      ctx.fillRect(x + 3, y + 1, 1, 1);
+      const w = 18 + Math.floor(hash2(tx, ty, 24) * 18);
+      const h = 7 + Math.floor(hash2(tx, ty, 25) * 6);
+      const x = tx * TILE + Math.floor(hash2(tx, ty, 26) * (TILE - w / 2)) - 4;
+      const y = ty * TILE + 4 + Math.floor(hash2(tx, ty, 27) * (TILE - h - 4));
+      const blobs: [number, number, number, number][] = [[x, y, w, h]];
+      for (let k = 0; k < 2; k++) {
+        const bw = Math.round(w * (0.4 + hash2(tx, ty, 30 + k) * 0.3));
+        const bh = Math.round(h * (0.6 + hash2(tx, ty, 32 + k) * 0.3));
+        blobs.push([x + Math.floor(hash2(tx, ty, 34 + k) * (w - bw)), y + (k ? h - bh + 2 : -2), bw, bh]);
+      }
+      ctx.globalAlpha = mud ? 0.5 : 0.28;
+      for (const [bx, by, bw, bh] of blobs) {
+        ellipse(ctx, bx, by, bw, bh, mud ? dirt[1] : water[3]);
+      }
+      ctx.globalAlpha = mud ? 0.35 : 0.22;
+      for (const [bx, by, bw, bh] of blobs) {
+        ellipse(ctx, bx + 2, by + 1, Math.max(2, bw - 4), Math.max(2, bh - 2), mud ? dirt[2] : water[4]);
+      }
+      mask.globalAlpha = mud ? 0.3 : 0.6;
+      for (const [bx, by, bw, bh] of blobs) {
+        ellipse(mask, bx + 1, by + 1, Math.max(2, bw - 2), Math.max(2, bh - 2), '#fff');
+      }
       puddles.push([x + w / 2, y + h / 2]);
     }
   }
+  ctx.globalAlpha = 1;
+  mask.globalAlpha = 1;
   return c;
+}
+
+/** The pond's open water, pixel for pixel (the water tiles as drawn, minus their grassy and earthy shores). */
+function pondMask(office: Office, mask: CanvasRenderingContext2D): boolean {
+  const [, tctx] = makeCanvas(TILE, TILE);
+  let any = false;
+  for (let ty = 0; ty < office.h; ty++) {
+    for (let tx = 0; tx < office.w; tx++) {
+      if (office.floorAt(tx, ty) !== 'water') {
+        continue;
+      }
+      tctx.clearRect(0, 0, TILE, TILE);
+      drawFloorTile(tctx, office, 'water', tx, ty, 0, 0);
+      const src = tctx.getImageData(0, 0, TILE, TILE);
+      const out = mask.getImageData(tx * TILE, ty * TILE, TILE, TILE);
+      for (let i = 0; i < src.data.length; i += 4) {
+        const [r, g, b] = [src.data[i], src.data[i + 1], src.data[i + 2]];
+        if (b > r + 20 && b >= g - 6) {
+          out.data.set([255, 255, 255, 255], i);
+        }
+      }
+      mask.putImageData(out, tx * TILE, ty * TILE);
+      any = true;
+    }
+  }
+  return any;
 }
 
 function ellipse(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
@@ -92,12 +150,17 @@ function ellipse(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
   }
 }
 
+/** Under the open sky: outdoor ground, or (on upper floors) the open air around the building. */
+export function openSky(office: Office, x: number, y: number): boolean {
+  return office.isOutdoor(x, y) || (!office.floorAt(x, y) && !office.wallAt(x, y));
+}
+
 function outdoorMask(office: Office): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(office.w * TILE, office.h * TILE);
   ctx.fillStyle = '#2c374f';
   for (let y = 0; y < office.h; y++) {
     for (let x = 0; x < office.w; x++) {
-      if (office.isOutdoor(x, y) || (!office.floorAt(x, y) && !office.wallAt(x, y))) {
+      if (openSky(office, x, y)) {
         ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
@@ -108,22 +171,167 @@ function outdoorMask(office: Office): HTMLCanvasElement {
 const grounds = new WeakMap<Office, Ground>();
 
 function groundFor(office: Office, w: Weather): Ground {
-  const snowy = w === 'snow';
+  const snowy = w === 'snow' || snowSeason();
   const key = `${office.version}|${w}|${snowy}`;
   let g = grounds.get(office);
   if (!g || g.key !== key) {
     const puddles: [number, number][] = [];
-    const cover = snowy ? snowCover(office, w === 'snow') : w === 'rain' ? puddleCover(office, puddles) : null;
-    g = { key, cover, outdoor: outdoorMask(office), puddles };
+    const [water, mask] = makeCanvas(office.w * TILE, office.h * TILE);
+    const pond = pondMask(office, mask);
+    const cover = snowy ? snowCover(office, w === 'snow') : w === 'rain' ? puddleCover(office, puddles, mask) : null;
+    const wet = pond || puddles.length > 0;
+    g = { key, cover, outdoor: outdoorMask(office), puddles, water: wet ? water : null };
     grounds.set(office, g);
   }
   return g;
 }
 
+interface SkyLook {
+  /** sky gradient, deepest first */
+  sky: string[];
+  /** cloud tones: shaded underside, body, sunlit top */
+  cloud: [string, string, string];
+  /** how much of the sky is cloud, 0..1 */
+  cover: number;
+}
+
+const SKY: Record<Weather, SkyLook> = {
+  clear: { sky: ['#6fa9d6', '#86b9df', '#9fc9e7', '#b9d9ef'], cloud: ['#c9d8e8', '#e7eef6', '#fbfdff'], cover: 0.36 },
+  rain: { sky: ['#5d6b7a', '#677685', '#738291', '#808e9c'], cloud: ['#56626f', '#8b97a3', '#a9b3bd'], cover: 0.7 },
+  snow: { sky: ['#a9b6c4', '#b7c3cf', '#c6d0da', '#d5dde5'], cloud: ['#c4ccd6', '#e1e6ec', '#f6f8fa'], cover: 0.55 },
+};
+const SKY_W = 384;
+const SKY_H = 192;
+/** Reflected sky drift, world px per second. */
+const SKY_DRIFT = 4;
+const skies = new Map<Weather, HTMLCanvasElement>();
+
+/** Value noise that wraps every SKY_W x SKY_H px (lattice `cell` px), so the sky tiles without seams. */
+function wrapNoise(x: number, y: number, cell: number, seed: number): number {
+  const gw = SKY_W / cell;
+  const gh = SKY_H / cell;
+  const fx = x / cell;
+  const fy = y / cell;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const sx = (fx - x0) ** 2 * (3 - 2 * (fx - x0));
+  const sy = (fy - y0) ** 2 * (3 - 2 * (fy - y0));
+  const v = (i: number, j: number) => hash2(((i % gw) + gw) % gw, ((j % gh) + gh) % gh, seed);
+  const top = v(x0, y0) + (v(x0 + 1, y0) - v(x0, y0)) * sx;
+  const bottom = v(x0, y0 + 1) + (v(x0 + 1, y0 + 1) - v(x0, y0 + 1)) * sx;
+  return top + (bottom - top) * sy;
+}
+
+/** Cloud density at (x, y): a few octaves, stretched wide like fair-weather cumulus. */
+function cloudAt(x: number, y: number): number {
+  const n = wrapNoise(x, y * 1.5, 96, 711) * 0.55 + wrapNoise(x, y * 1.5, 48, 712) * 0.3 + wrapNoise(x, y * 1.5, 24, 713) * 0.15;
+  return Math.min(1, Math.max(0, (n - 0.5) * 2.6 + 0.5));
+}
+
+/**
+ * A seamless pixel-art sky for water reflections: a dithered gradient, and puffy clouds from tiling noise with a
+ * sunlit top edge, a soft body and a shaded underside, their outlines broken up by ordered dither.
+ */
+function skyTile(w: Weather): HTMLCanvasElement {
+  let c = skies.get(w);
+  if (c) {
+    return c;
+  }
+  const s = SKY[w];
+  const [canvas, ctx] = makeCanvas(SKY_W, SKY_H);
+  const img = ctx.createImageData(SKY_W, SKY_H);
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const skyRgb = s.sky.map(rgb);
+  const cloudRgb = s.cloud.map(rgb);
+  const edge = 1 - s.cover;
+  for (let y = 0; y < SKY_H; y++) {
+    for (let x = 0; x < SKY_W; x++) {
+      const d = cloudAt(x, y);
+      const dither = bayer(x, y) - 0.5;
+      let col: number[];
+      if (d + dither * 0.05 > edge) {
+        const lit = cloudAt(x, y - 4) < d - 0.04;
+        const shaded = cloudAt(x, y + 4) < d - 0.04;
+        const body = d - edge;
+        const tone = shaded || body + dither * 0.06 < 0.04 ? 0 : lit ? 2 : 1;
+        col = cloudRgb[tone];
+      } else {
+        const t = Math.min(0.999, Math.max(0, (Math.sin((y / SKY_H) * Math.PI * 2) * 0.5 + 0.5) * 0.85 + dither * 0.25));
+        col = skyRgb[Math.floor(t * skyRgb.length)];
+      }
+      img.data.set([col[0], col[1], col[2], 255], (y * SKY_W + x) * 4);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  skies.set(w, canvas);
+  return canvas;
+}
+
+let scratch: [HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
+
+/**
+ * The sky mirrored in the pond and puddles. The sky is pinned to the screen, not the ground: walking the camera over
+ * the water slides the water under clouds that stay put on screen, which reads as depth. Drawn before the lighting.
+ */
+function reflectSky(ctx: CanvasRenderingContext2D, water: HTMLCanvasElement, view: Rect, w: Weather, time: number): void {
+  const vw = Math.ceil(view.w) + 2;
+  const vh = Math.ceil(view.h) + 2;
+  if (!scratch || scratch[0].width < vw || scratch[0].height < vh) {
+    scratch = makeCanvas(Math.max(vw, scratch?.[0].width ?? 0), Math.max(vh, scratch?.[0].height ?? 0));
+  }
+  const [buf, b] = scratch;
+  const x0 = Math.floor(view.x);
+  const y0 = Math.floor(view.y);
+  b.globalCompositeOperation = 'source-over';
+  b.clearRect(0, 0, buf.width, buf.height);
+  const sky = skyTile(w);
+  const ox = -Math.floor((time * SKY_DRIFT) % SKY_W);
+  for (let y = 0; y < vh; y += SKY_H) {
+    for (let x = ox; x < vw; x += SKY_W) {
+      b.drawImage(sky, x, y);
+    }
+  }
+  b.globalCompositeOperation = 'destination-in';
+  b.drawImage(water, -x0, -y0);
+  ctx.globalAlpha = w === 'rain' ? 0.42 : 0.4;
+  ctx.drawImage(buf, 0, 0, vw, vh, x0, y0, vw, vh);
+  ctx.globalAlpha = 1;
+}
+
+/** Raindrops hitting paving and roads: a dot, then a tiny crown, then a fading ring, scattered over the view. */
+function splashes(ctx: CanvasRenderingContext2D, office: Office, view: Rect, time: number): void {
+  const n = Math.min(160, Math.round((view.w * view.h) / 2600));
+  const LIFE = 0.3;
+  ctx.fillStyle = 'rgba(214, 236, 242, 0.6)';
+  for (let i = 0; i < n; i++) {
+    const phase = hash2(i, 0, 801);
+    const t = time / LIFE + phase;
+    const round = Math.floor(t);
+    const f = t - round;
+    const x = Math.round(view.x + hash2(i, round, 802) * view.w);
+    const y = Math.round(view.y + hash2(i, round, 803) * view.h);
+    const tx = Math.floor(x / TILE);
+    const ty = Math.floor(y / TILE);
+    if (!office.inBounds(tx, ty) || !office.isOutdoor(tx, ty) || !hardGround(office, tx, ty)) {
+      continue;
+    }
+    if (f < 0.3) {
+      ctx.fillRect(x, y, 1, 1);
+    } else if (f < 0.6) {
+      ctx.fillRect(x - 1, y - 1, 1, 1);
+      ctx.fillRect(x + 1, y - 1, 1, 1);
+      ctx.fillRect(x, y, 1, 1);
+    } else {
+      ctx.fillRect(x - 2, y, 1, 1);
+      ctx.fillRect(x + 2, y, 1, 1);
+    }
+  }
+}
+
 /**
  * The day's weather (calendar `weather()`, ?weather=rain|snow|clear): rain or snow falling over outdoor areas,
  * drips running down the windows, puddles or snow cover on the ground and a greyer sky when it rains.
- * December always has some snow on the ground. Staff skip the park in bad weather (director `chooseIdle`).
+ * Through December (unless switched off in Settings) snow covers the ground. Staff skip the park in bad weather (director `chooseIdle`).
  */
 registerExtension((director) => {
   let time = 0;
@@ -132,11 +340,16 @@ registerExtension((director) => {
     update(dt) {
       time += dt;
     },
-    drawables(_view, push) {
-      const g = groundFor(office, weather());
+    drawables(view, push) {
+      const w = weather();
+      const g = groundFor(office, w);
       if (g.cover) {
         const cover = g.cover;
         push(-1e6 + 1, (ctx) => ctx.drawImage(cover, 0, 0));
+      }
+      if (g.water) {
+        const water = g.water;
+        push(-1e6 + 4, (ctx) => reflectSky(ctx, water, view, w, time));
       }
     },
     afterLighting(ctx, view) {
@@ -150,6 +363,7 @@ registerExtension((director) => {
         ctx.drawImage(g.outdoor, 0, 0);
         ctx.globalAlpha = 1;
         ripples(ctx, g.puddles, view, time);
+        splashes(ctx, office, view, time);
         windowDrips(ctx, office, time);
       }
       fall(ctx, office, view, time, w);
@@ -178,7 +392,7 @@ function fall(ctx: CanvasRenderingContext2D, office: Office, view: Rect, time: n
     }
     const tx = Math.floor(x / TILE);
     const ty = Math.floor(y / TILE);
-    if (!office.inBounds(tx, ty) || !office.isOutdoor(tx, ty)) {
+    if (!office.inBounds(tx, ty) || !openSky(office, tx, ty)) {
       continue;
     }
     if (rain) {

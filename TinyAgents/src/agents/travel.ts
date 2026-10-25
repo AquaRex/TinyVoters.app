@@ -31,6 +31,16 @@ interface BayGeometry {
 
 const between = (rand: () => number, lo: number, hi: number) => lo + rand() * (hi - lo);
 
+/**
+ * Whether someone walks `levels` floors up (`up`) or down rather than taking the elevator. Baseline: one floor 80%
+ * down / 60% up, then 10 points less per extra floor (at least 20% / 10%). Keen walkers (the stairs trait, average
+ * about 0.35) nudge it up, lift lovers down.
+ */
+function prefersStairs(a: Agent, levels: number, up: boolean, rand: () => number): boolean {
+  const base = up ? Math.max(0.1, 0.7 - 0.1 * levels) : Math.max(0.2, 0.9 - 0.1 * levels);
+  return rand() < Math.min(0.95, Math.max(0.05, base + (a.traits.stairs - 0.35) * 0.5));
+}
+
 /** Getting people into and out of the office: cars, the front door, the elevator and the stairs. */
 export class Travel {
   constructor(private d: Director) {}
@@ -97,17 +107,18 @@ export class Travel {
     return [...spots].sort((p, q) => Math.hypot(p.x - from[0], p.y - from[1]) - Math.hypot(q.x - from[0], q.y - from[1]))[0];
   }
 
-  private useStairs(a: Agent): boolean {
+  /** Between the ground floor and this one, `up` or down: the stairs, or the elevator (see prefersStairs). */
+  private useStairs(a: Agent, up: boolean): boolean {
     const lifts = this.office.spotsFor('elevator').length > 0;
     const stairs = this.office.spotsFor('stairs').length > 0;
-    return stairs && (!lifts || (!a.isSub && this.d.rand() < a.traits.stairs));
+    return stairs && (!lifts || prefersStairs(a, Math.max(1, this.d.level), up, this.d.rand));
   }
 
   /** Steps from hidden on the ground floor to standing upstairs: out of the elevator, up the stairs, or (neither) faded in. */
   upstairs(a: Agent, quick = false): Step[] {
     const d = this.d;
     const anchor: Tile = d.deskTile(a) ?? [Math.floor(this.office.w / 2), Math.floor(this.office.h / 2)];
-    if (this.useStairs(a)) {
+    if (this.useStairs(a, true)) {
       return this.outOfStairs(this.nearest(this.office.spotsFor('stairs'), anchor)!, quick ? 2 : between(d.rand, 10, 15));
     }
     const spot = this.nearest(this.office.spotsFor('elevator'), anchor);
@@ -169,7 +180,7 @@ export class Travel {
     }
     const levels = Math.abs(to.level - d.level);
     const both = (k: Activity) => this.office.spotsFor(k).length > 0 && to.office.spotsFor(k).length > 0;
-    const kind: Activity = both('stairs') && (!both('elevator') || (!a.isSub && d.rand() < a.traits.stairs / levels)) ? 'stairs' : 'elevator';
+    const kind: Activity = both('stairs') && (!both('elevator') || prefersStairs(a, levels, to.level > d.level, d.rand)) ? 'stairs' : 'elevator';
     const start: Tile = from ?? (a.seated && a.seatExit ? a.seatExit : a.seg ?? [a.tx, a.ty]);
     const here = this.nearest(this.office.spotsFor(kind), start)!;
     const there = this.nearest(to.office.spotsFor(kind), [here.x, here.y])!;
@@ -186,7 +197,8 @@ export class Travel {
     return {
       status: 'Arriving',
       begin(a) {
-        const free = d.freeTilesNear(a, spot.x, spot.y + 1, 3).filter(([x, y]) => !(x === spot.x && y === spot.y));
+        const room = d.nav.roomOf(spot.x, spot.y);
+        const free = d.freeTilesNear(a, spot.x, spot.y + 1, 3).filter(([x, y]) => !(x === spot.x && y === spot.y) && d.nav.roomOf(x, y) === room);
         const pick = free[Math.floor(d.rand() * Math.min(3, free.length))];
         if (!pick) {
           return false;
@@ -204,7 +216,7 @@ export class Travel {
   downstairs(a: Agent, vanish = false): Step[] {
     const d = this.d;
     const here: Tile = [a.tx, a.ty];
-    if (this.useStairs(a)) {
+    if (this.useStairs(a, false)) {
       return [...this.intoStairs(this.nearest(this.office.spotsFor('stairs'), here)!), pause(vanish ? 0 : between(d.rand, 10, 15), 'Taking the stairs', true)];
     }
     const spot = this.nearest(this.office.spotsFor('elevator'), here);
@@ -230,11 +242,12 @@ export class Travel {
     let waitAt: Tile = [spot.x, spot.y];
     let walk: Step | null = null;
     const [doorX, doorY] = Office.footPoint(spot.x, spot.y);
+    const room = d.nav.roomOf(spot.x, spot.y);
     return [
       {
         status: 'Walking to the elevator',
         begin(x) {
-          const free = d.freeTilesNear(x, spot.x, spot.y, 3).filter(([tx, ty]) => !(tx === spot.x && ty === spot.y) && !(tx === spot.x && ty === spot.y + 1));
+          const free = d.freeTilesNear(x, spot.x, spot.y, 3).filter(([tx, ty]) => !(tx === spot.x && ty === spot.y) && !(tx === spot.x && ty === spot.y + 1) && d.nav.roomOf(tx, ty) === room);
           waitAt = free[0] ?? [spot.x, spot.y];
           walk = walkTo(d, { x: waitAt[0], y: waitAt[1] });
           const ok = walk.begin!(x) !== false;
@@ -260,14 +273,7 @@ export class Travel {
           }
         },
       },
-      {
-        status: 'Stepping in',
-        locked: true,
-        begin(x) {
-          d.leavePlace(x);
-        },
-        tick: (x, dt) => x.glide(doorX + (spot.px ?? 0), doorY, x.speed, dt, true),
-      },
+      { ...walkTo(d, { x: spot.x, y: spot.y, ox: spot.px ?? 0, face: 'up' }), status: 'Stepping in', locked: true },
       fadeAway('up', -18, 0.45, 'In the elevator'),
     ];
   }

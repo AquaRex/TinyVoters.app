@@ -15,9 +15,11 @@ import { CloudError, decideApproval, visitToken } from '../cloud/api';
 import { ChatView } from './chat';
 import { claudeBadge } from './roster';
 import type { AgentInfo } from '../agents/agent';
-import { npcShift } from '../agents/buildingStaff';
+import { npcDef, npcShift } from '../agents/buildingStaff';
 import { teamKey, teamName } from '../agents/labels';
 import { renameInline } from '../features/plaques';
+import { aiWanted, mindOf, wantThought } from '../mind/brain';
+import { engine } from '../mind/engine';
 
 const DIRS: Dir[] = ['down', 'left', 'up', 'right'];
 const POSE_FPS: Partial<Record<Pose, number>> = { walk: 10, carry: 10, type: 7, wave: 6, talk: 5, sitTalk: 5, stand: 1.6, phone: 3, read: 1.5 };
@@ -53,12 +55,17 @@ export class AgentPanel {
   private previewPose: Pose = 'walk';
   private t = 0;
   private chat: ChatView | null = null;
+  /** showing the name and look editor instead of the info */
+  private customizing = false;
 
   constructor(private onClose: () => void) {
     this.root = document.getElementById('agentPanel')!;
   }
 
   open(agent: Agent): void {
+    if (agent !== this.agent) {
+      this.customizing = false;
+    }
     this.agent = agent;
     this.root.hidden = false;
     this.render();
@@ -69,6 +76,7 @@ export class AgentPanel {
     this.chat = null;
     this.agent = null;
     this.follow = false;
+    this.customizing = false;
     this.root.hidden = true;
     this.onClose();
   }
@@ -79,77 +87,42 @@ export class AgentPanel {
     a.setPerson({ ...a.person });
   }
 
-  /** Building staff: who they are and their shift, nothing to customize. */
-  private renderNpc(a: Agent): void {
-    this.root.innerHTML = `
-      <div class="ap-head">
-        <div class="ap-preview"><canvas class="pix" width="32" height="48"></canvas>
-          <div class="ap-turn"><button data-turn="-1" aria-label="Turn left">&#9664;</button><button data-pose aria-label="Change pose">pose</button><button data-turn="1" aria-label="Turn right">&#9654;</button></div>
-        </div>
-        <div class="ap-id">
-          <div class="ap-name" style="border:0">${escapeHtml(a.name)}</div>
-          <div class="ap-role"><i style="background:${a.role.badge}"></i>${escapeHtml(a.role.title)}</div>
-          <div class="ap-status"></div>
-          <div class="ap-meta">Building staff · works ${escapeHtml(npcShift(a.id))}</div>
-        </div>
-        <button class="ap-close" aria-label="Close">&times;</button>
-      </div>
-      <p class="ap-note">${escapeHtml(a.name)} works for the building, not on a team: keeps office hours and comes and goes by the front door.</p>`;
-    this.preview = this.root.querySelector('.ap-preview canvas')!;
-    this.root.querySelector('.ap-close')!.addEventListener('click', () => this.close());
-    this.root.querySelectorAll<HTMLButtonElement>('[data-turn]').forEach((b) =>
-      b.addEventListener('click', () => {
-        this.previewDir = (this.previewDir + Number(b.dataset.turn) + 4) % 4;
-      }),
-    );
-    this.root.querySelector('[data-pose]')!.addEventListener('click', () => {
-      this.previewPose = POSES[(POSES.indexOf(this.previewPose) + 1) % POSES.length];
-      this.t = 0;
-    });
-    this.tick(0);
-  }
-
+  /** The window: who they are, what's on their mind and their day; Customize swaps in the look and name editor. */
   private render(): void {
     const a = this.agent!;
-    if (a.npc) {
-      this.renderNpc(a);
+    if (this.customizing) {
+      this.renderCustomize(a);
       return;
     }
-    const look = a.person.look;
     const team = teamKey(a);
-    const who = a.claude
-      ? a.info.kind === 'main'
-        ? 'Main session'
-        : `Subagent · ${a.info.type}`
-      : 'Demo staff';
+    const who = a.npc
+      ? `Building staff · works ${npcShift(a.id)}`
+      : a.claude
+        ? a.info.kind === 'main'
+          ? 'Main session'
+          : `Subagent · ${a.info.type}`
+        : 'Demo staff';
     this.root.innerHTML = `
       <div class="ap-head">
-        <div class="ap-preview"><canvas class="pix" width="32" height="48"></canvas>
-          <div class="ap-turn"><button data-turn="-1" aria-label="Turn left">&#9664;</button><button data-pose aria-label="Change pose">pose</button><button data-turn="1" aria-label="Turn right">&#9654;</button></div>
-        </div>
+        <div class="ap-preview"><canvas class="pix" width="32" height="48"></canvas></div>
         <div class="ap-id">
-          <input class="ap-name" maxlength="16" value="${escapeHtml(a.name)}" aria-label="Name" />
+          <div class="ap-name">${escapeHtml(a.name)}</div>
           <div class="ap-role"><i style="background:${a.role.badge}"></i>${escapeHtml(a.role.title)}</div>
           <div class="ap-status"></div>
           <div class="ap-meta">${escapeHtml(who)}${team ? ` · <span class="ap-team"><span class="ap-team-name">${escapeHtml(teamName(a))}</span>${visitToken ? '' : '<button class="ap-rename" aria-label="Rename team" title="Rename this team">rename</button>'}</span>` : ''}</div>
-          <div class="ap-meta ap-friends"></div>
+          ${a.npc ? '' : '<div class="ap-meta ap-friends"></div>'}
         </div>
         <button class="ap-close" aria-label="Close">&times;</button>
       </div>
+      <div class="ap-mind" hidden></div>
       ${a.claude ? '<div class="ap-claude"></div>' : ''}
-      <div class="ap-needs" style="margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;font-size:13px"></div>
-      ${a.isSub ? '' : `<div class="ap-career">${careerSection(a)}</div>`}
-      <div class="ap-rows"></div>
+      <div class="ap-needs"></div>
+      ${a.isSub || a.npc ? '' : `<div class="ap-career">${careerSection(a)}</div>`}
       <div class="ap-foot">
         <button data-act="follow" class="${this.follow ? 'on' : ''}">Follow</button>
-        <button data-act="random">Randomize</button>
-        <button data-act="reset">Reset look</button>
+        <button data-act="customize">Customize</button>
       </div>
-      <p class="ap-note">${
-        a.claude
-          ? `Looks and desk are saved for ${a.isSub ? `this lead's <b>${escapeHtml(a.info.type)}</b> helper on ` : ''}<b>${escapeHtml(a.info.project)}</b>${a.info.machine ? ` on ${escapeHtml(a.info.machine)}` : ''}, so this person comes back the same next session.`
-          : `${escapeHtml(a.name)} is built-in demo staff; their look is saved too.`
-      }</p>`;
+      ${a.npc ? `<p class="ap-note">${escapeHtml(a.name)} works for the building, not on a team: keeps office hours and comes and goes by the front door.</p>` : ''}`;
     this.preview = this.root.querySelector('.ap-preview canvas')!;
     if (a.claude) {
       this.root.querySelector('.ap-role')!.append(claudeBadge());
@@ -181,15 +154,63 @@ export class AgentPanel {
     for (const id of NEED_IDS) {
       const label = document.createElement('span');
       label.textContent = NEED_LABELS[id];
-      label.style.color = 'var(--muted)';
       const bar = document.createElement('div');
-      bar.style.cssText = 'height:8px;background:var(--panel-2);border:1px solid var(--frame);border-radius:2px;overflow:hidden';
+      bar.className = 'ap-need-bar';
       const fill = document.createElement('div');
       fill.dataset.need = id;
-      fill.style.cssText = 'height:100%;width:0';
       bar.append(fill);
       needs.append(label, bar);
     }
+
+    this.root.querySelector('.ap-close')!.addEventListener('click', () => this.close());
+    this.root.querySelector('.ap-rename')?.addEventListener('click', (e) => {
+      const r = (e.target as HTMLElement).getBoundingClientRect();
+      const lead = a.info.parent ? app.agents.find((o) => o.id === a.info.parent) ?? a : a;
+      renameInline(team!, teamName(a), lead.info.project, r.left + 60, r.bottom + 14, () => this.agent === a && this.render());
+    });
+    this.root.querySelector('[data-act="follow"]')!.addEventListener('click', () => {
+      this.follow = !this.follow;
+      this.render();
+    });
+    this.root.querySelector('[data-act="customize"]')!.addEventListener('click', () => {
+      this.customizing = true;
+      this.render();
+    });
+    this.tick(0);
+  }
+
+  /** Name and look. Building staff keep their uniform: only the parts their role allows can change. */
+  private renderCustomize(a: Agent): void {
+    const look = a.person.look;
+    const uniform: Partial<Record<keyof Appearance, readonly string[]>> = a.npc
+      ? { top: a.role.look.tops, topColor: a.role.look.topColors, accessory: a.role.look.accessories }
+      : {};
+    this.root.innerHTML = `
+      <div class="ap-head">
+        <div class="ap-preview"><canvas class="pix" width="32" height="48"></canvas>
+          <div class="ap-turn"><button data-turn="-1" aria-label="Turn left">&#9664;</button><button data-pose aria-label="Change pose">pose</button><button data-turn="1" aria-label="Turn right">&#9654;</button></div>
+        </div>
+        <div class="ap-id">
+          <div class="ap-kicker">Customize</div>
+          <input class="ap-name" maxlength="16" value="${escapeHtml(a.name)}" aria-label="Name" />
+          <div class="ap-role"><i style="background:${a.role.badge}"></i>${escapeHtml(a.role.title)}</div>
+        </div>
+        <button class="ap-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="ap-rows"></div>
+      <div class="ap-foot">
+        <button data-act="done" class="on">Done</button>
+        <button data-act="random">Randomize</button>
+        <button data-act="reset">Reset</button>
+      </div>
+      <p class="ap-note">${
+        a.npc
+          ? `${escapeHtml(a.name)} wears the ${escapeHtml(a.role.title.toLowerCase())} uniform; everything else is up to you.`
+          : a.claude
+            ? `Looks and desk are saved for ${a.isSub ? `this lead's <b>${escapeHtml(a.info.type)}</b> helper on ` : ''}<b>${escapeHtml(a.info.project)}</b>${a.info.machine ? ` on ${escapeHtml(a.info.machine)}` : ''}, so this person comes back the same next session.`
+            : `${escapeHtml(a.name)} is built-in demo staff; their look is saved too.`
+      }</p>`;
+    this.preview = this.root.querySelector('.ap-preview canvas')!;
 
     const rows = this.root.querySelector('.ap-rows')!;
     for (const row of ROWS) {
@@ -198,10 +219,16 @@ export class AgentPanel {
       const label = document.createElement('label');
       label.textContent = row.label;
       el.append(label);
-      if (row.kind === 'swatch') {
+      const options = uniform[row.key] ?? (row.kind === 'swatch' ? row.colors : row.options);
+      if (options.length < 2) {
+        const fixed = document.createElement('span');
+        fixed.className = 'ap-fixed';
+        fixed.textContent = 'part of the uniform';
+        el.append(fixed);
+      } else if (row.kind === 'swatch') {
         const sw = document.createElement('div');
         sw.className = 'swatches';
-        for (const c of row.colors) {
+        for (const c of options) {
           const b = document.createElement('button');
           b.style.background = c;
           b.className = look[row.key] === c ? 'on' : '';
@@ -217,10 +244,9 @@ export class AgentPanel {
       } else {
         const cyc = document.createElement('div');
         cyc.className = 'cycle';
-        const value = String(look[row.key] ?? row.options[0]);
+        const value = String(look[row.key] ?? options[0]);
         const step = (d: number) => {
-          const opts = row.options;
-          (look as unknown as Record<string, string>)[row.key] = opts[(opts.indexOf(value) + d + opts.length) % opts.length];
+          (look as unknown as Record<string, string>)[row.key] = options[(options.indexOf(value) + d + options.length) % options.length];
           this.save();
           this.render();
         };
@@ -241,11 +267,6 @@ export class AgentPanel {
     }
 
     this.root.querySelector('.ap-close')!.addEventListener('click', () => this.close());
-    this.root.querySelector('.ap-rename')?.addEventListener('click', (e) => {
-      const r = (e.target as HTMLElement).getBoundingClientRect();
-      const lead = a.info.parent ? app.agents.find((o) => o.id === a.info.parent) ?? a : a;
-      renameInline(team!, teamName(a), lead.info.project, r.left + 60, r.bottom + 14, () => this.agent === a && this.render());
-    });
     this.root.querySelector<HTMLInputElement>('.ap-name')!.addEventListener('change', (e) => {
       a.person.name = (e.target as HTMLInputElement).value.trim() || a.person.name;
       this.save();
@@ -259,8 +280,8 @@ export class AgentPanel {
       this.previewPose = POSES[(POSES.indexOf(this.previewPose) + 1) % POSES.length];
       this.t = 0;
     });
-    this.root.querySelector('[data-act="follow"]')!.addEventListener('click', () => {
-      this.follow = !this.follow;
+    this.root.querySelector('[data-act="done"]')!.addEventListener('click', () => {
+      this.customizing = false;
       this.render();
     });
     this.root.querySelector('[data-act="random"]')!.addEventListener('click', () => {
@@ -270,7 +291,7 @@ export class AgentPanel {
     });
     this.root.querySelector('[data-act="reset"]')!.addEventListener('click', () => {
       forgetPerson(a.slot);
-      a.setPerson(generatedPerson(a.slot, a.role, demoIdentity(a.id)?.name));
+      a.setPerson(generatedPerson(a.slot, a.role, npcDef(a.id)?.name ?? demoIdentity(a.id)?.name));
       this.render();
     });
     this.tick(0);
@@ -307,6 +328,15 @@ export class AgentPanel {
     if (status) {
       status.textContent = a.statusText;
     }
+    const mindEl = this.root.querySelector<HTMLElement>('.ap-mind');
+    if (mindEl) {
+      const html = mindSection(a);
+      mindEl.hidden = !html;
+      if (mindEl.dataset.html !== html) {
+        mindEl.dataset.html = html;
+        mindEl.innerHTML = html;
+      }
+    }
     const claude = this.root.querySelector<HTMLElement>('.ap-claude');
     if (claude) {
       const html = claudeSection(a.info);
@@ -321,6 +351,36 @@ export class AgentPanel {
       el.style.background = needColor(v);
     });
   }
+}
+
+function since(at: number): string {
+  return ago(Math.max(0, Math.round((performance.now() - at) / 1000)));
+}
+
+function mindRow(label: string, body: string, at: number): string {
+  return `<div class="ap-mind-row"><span class="ap-mind-k">${label}</span><span class="ap-mind-v">${body}</span><small>${since(at)} ago</small></div>`;
+}
+
+/** AI staff: what this worker's mind is thinking, last said and last did, one labelled row each. */
+function mindSection(a: Agent): string {
+  if (!aiWanted() && engine.state === 'off') {
+    return '';
+  }
+  if (!engine.ready) {
+    const why = engine.state === 'loading' ? 'the model is loading' : engine.note || 'AI staff is off';
+    return `<div class="ap-mind-off">Mind not active: ${escapeHtml(why)}</div>`;
+  }
+  if (a.isSub) {
+    return '<div class="ap-mind-off">Mind not active: a subagent is always at work</div>';
+  }
+  wantThought(a);
+  const m = mindOf(a);
+  const rows = [
+    m?.thought ? mindRow('Thinking', `<i>“${escapeHtml(m.thought.text)}”</i>`, m.thought.at) : '',
+    m?.lastLine ? mindRow('Said', `“${escapeHtml(m.lastLine.text)}”`, m.lastLine.at) : '',
+    m?.last ? mindRow('Did', `${escapeHtml(m.last.chosen)} <small>(of ${escapeHtml(m.last.options.join(', '))})</small>`, m.last.at) : '',
+  ].filter(Boolean);
+  return rows.length ? rows.join('') : '<div class="ap-mind-off">Mind active: nothing on their mind yet</div>';
 }
 
 const STATE_LABEL: Record<string, string> = {

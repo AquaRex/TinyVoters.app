@@ -8,6 +8,7 @@ import type { Tile } from './nav';
 import { Profession } from './professions';
 import { roomsOfKind } from './rooms';
 import { Target, call, defer, hangout, pause, walkTo } from './steps';
+import type { Choice } from '../mind/brain';
 import { track } from './toolPlaces';
 
 const C = (...i: number[]) => i.map((n) => CLOTH_COLORS[n]);
@@ -129,13 +130,14 @@ function chef(d: Director, a: Agent): Task | null {
   return stint(d, a, spot && { d: cd, spot }, serving ? 'Serving lunch' : 'Cooking', serving ? rnd(d, 25, 45) : rnd(d, 12, 25), serving ? 'idle' : 'type');
 }
 
-function itTech(d: Director, a: Agent): Task | null {
-  if (d.rand() < 0.7) {
-    return stint(d, a, spots(d, a, ['it'], undefined, 'sit')[0], 'At the IT help desk', rnd(d, 50, 110), 'type', true);
-  }
+function itTech(d: Director, a: Agent): Choice[] {
   const fix = spots(d, a, ['it', 'server'], undefined, 'stand');
   const pick = fix[Math.floor(d.rand() * Math.min(4, fix.length))];
-  return stint(d, a, pick, pick?.spot.activity === 'server' ? 'Checking the servers' : 'Fixing a laptop', rnd(d, 12, 22));
+  const what = pick?.spot.activity === 'server' ? 'Checking the servers' : 'Fixing a laptop';
+  return [
+    { label: 'sit at the help desk', u: 0.7, make: () => stint(d, a, spots(d, a, ['it'], undefined, 'sit')[0], 'At the IT help desk', rnd(d, 50, 110), 'type', true) },
+    { label: what.toLowerCase(), u: 0.3, make: () => stint(d, a, pick, what, rnd(d, 12, 22)) },
+  ];
 }
 
 function doorAt(f: Director, x: number, y: number): boolean {
@@ -188,38 +190,32 @@ function handover(d: Director, a: Agent): Task | null {
   ]);
 }
 
-function guard(d: Director, a: Agent): Task | null {
-  const takeOver = handover(d, a);
-  if (takeOver) {
-    return takeOver;
-  }
-  const def = NPC_BY_ID.get(a.id);
-  if (!(def && awaitingRelief(def, d.hour)) && d.rand() < 0.3) {
-    const steps: Step[] = [];
-    for (let i = 0; i < 3; i++) {
-      const tile = tileIn(d, ['lobby'], a);
-      if (tile) {
-        steps.push(walkTo(d, { x: tile[0], y: tile[1] }, 'Patrolling the entrance'), pause(rnd(d, 2, 5), 'Patrolling the entrance'));
-      }
-    }
-    if (steps.length) {
-      return task('Patrolling the entrance', 'patrol', steps);
+function patrol(d: Director, a: Agent): Task | null {
+  const steps: Step[] = [];
+  for (let i = 0; i < 3; i++) {
+    const tile = tileIn(d, ['lobby'], a);
+    if (tile) {
+      steps.push(walkTo(d, { x: tile[0], y: tile[1] }, 'Patrolling the entrance'), pause(rnd(d, 2, 5), 'Patrolling the entrance'));
     }
   }
-  const desk = spots(d, a, ['work'], 'security', 'sit')[0] ?? spots(d, a, ['cctv'])[0];
-  return stint(d, a, desk, 'Watching the cameras', rnd(d, 40, 80), 'idle', true);
+  return steps.length ? task('Patrolling the entrance', 'patrol', steps) : null;
 }
 
-function receptionist(d: Director, a: Agent): Task | null {
-  if (d.rand() < 0.15) {
-    const drink = d.spotsAnywhere(a, ['coffee', 'water']).find((p) => p.d === d);
-    const t = stint(d, a, drink, 'Coffee break', rnd(d, 6, 10), 'idle', true);
-    if (t) {
-      return t;
-    }
+function guard(d: Director, a: Agent): Choice[] {
+  const takeOver = handover(d, a);
+  if (takeOver) {
+    return [{ label: 'take over the desk', u: 1, make: () => takeOver }];
   }
-  const desk = d.spotsAnywhere(a, ['reception']).sort((p, q) => +(q.d === a.homeFloor) - +(p.d === a.homeFloor))[0];
-  return stint(d, a, desk, 'At reception', rnd(d, 60, 120), 'type', true);
+  const def = NPC_BY_ID.get(a.id);
+  const cameras: Choice = { label: 'watch the cameras', u: 0.7, make: () => stint(d, a, spots(d, a, ['work'], 'security', 'sit')[0] ?? spots(d, a, ['cctv'])[0], 'Watching the cameras', rnd(d, 40, 80), 'idle', true) };
+  return def && awaitingRelief(def, d.hour) ? [cameras] : [cameras, { label: 'patrol the entrance', u: 0.3, make: () => patrol(d, a) }];
+}
+
+function receptionist(d: Director, a: Agent): Choice[] {
+  return [
+    { label: 'stay at the reception desk', u: 0.85, make: () => stint(d, a, d.spotsAnywhere(a, ['reception']).sort((p, q) => +(q.d === a.homeFloor) - +(p.d === a.homeFloor))[0], 'At reception', rnd(d, 60, 120), 'type', true) },
+    { label: 'a coffee break', u: 0.15, make: () => stint(d, a, d.spotsAnywhere(a, ['coffee', 'water']).find((p) => p.d === d), 'Coffee break', rnd(d, 6, 10), 'idle', true) },
+  ];
 }
 
 const CLEAN_ROOMS: RoomKind[] = ['corridor', 'lobby', 'reception', 'canteen', 'kitchen', 'social'];
@@ -258,19 +254,20 @@ function rounds(gear: 'vacuum' | 'mop', n: number): Step {
 }
 
 /** Gets the vacuum or the mop bucket from the janitor closet, cleans a few spots, puts it back. Evening shift. */
-function cleaner(d: Director, a: Agent): Task | null {
+function cleaner(d: Director, a: Agent): Choice[] {
+  // a break away from the closet: it's a one-tile lane, and the other cleaner needs to get to the gear
+  const rest: Choice = { label: 'a short break', u: 0.25, make: () => stint(d, a, d.spotsAnywhere(a, ['social', 'read', 'water']).find((p) => p.d === d), 'On a break', rnd(d, 20, 40), 'idle', true) };
+  // the closet is a one-tile lane: one cleaner in there at a time
+  const busy = d.staff.agents.some((o) => o !== a && o.npc && /^(Getting|Putting) the/.test(o.statusText));
+  const gear = d.rand() < 0.5 ? 'vacuum' : 'mop';
+  return busy ? [rest] : [{ label: gear === 'vacuum' ? 'vacuum the floors' : 'mop the floors', u: 0.75, make: () => cleanRound(d, a, gear) }, rest];
+}
+
+function cleanRound(d: Director, a: Agent, gear: 'vacuum' | 'mop'): Task | null {
   const closet = d.spotsAnywhere(a, ['clean'])[0];
   if (!closet) {
     return null;
   }
-  // the closet is a one-tile lane: one cleaner in there at a time
-  const busy = d.staff.agents.some((o) => o !== a && o.npc && /^(Getting|Putting) the/.test(o.statusText));
-  if (busy || d.rand() > 0.75) {
-    // a break away from the closet: it's a one-tile lane, and the other cleaner needs to get to the gear
-    const seat = d.spotsAnywhere(a, ['social', 'read', 'water']).find((p) => p.d === d);
-    return stint(d, a, seat, 'On a break', rnd(d, 20, 40), 'idle', true);
-  }
-  const gear = d.rand() < 0.5 ? 'vacuum' : 'mop';
   const what = gear === 'vacuum' ? 'the vacuum' : 'the mop bucket';
   const to = d.routeTo(a, closet.d, { x: closet.spot.x, y: closet.spot.y, spot: closet.spot }, `Getting ${what}`);
   if (!to) {
@@ -291,11 +288,11 @@ function cleaner(d: Director, a: Agent): Task | null {
   });
 }
 
-/** What a member of the building staff does next. */
-export function npcTask(d: Director, a: Agent): Task | null {
+/** What a member of the building staff may do next: duty-appropriate options with their usual weights. */
+export function npcChoices(d: Director, a: Agent): Choice[] {
   switch (a.role.id) {
     case 'chef':
-      return chef(d, a);
+      return [{ label: 'work the kitchen', u: 1, make: () => chef(d, a) }];
     case 'it':
       return itTech(d, a);
     case 'guard':
@@ -304,6 +301,20 @@ export function npcTask(d: Director, a: Agent): Task | null {
       return receptionist(d, a);
     case 'cleaner':
       return cleaner(d, a);
+  }
+  return [];
+}
+
+/** The usual pick: an option at random by weight (the next one if it can't happen right now). */
+export function npcTask(d: Director, a: Agent): Task | null {
+  const options = npcChoices(d, a);
+  let r = d.rand() * options.reduce((sum, o) => sum + o.u, 0);
+  const first = options.findIndex((o) => (r -= o.u) <= 0);
+  for (const o of [...options.slice(Math.max(0, first)), ...options.slice(0, Math.max(0, first))]) {
+    const t = o.make();
+    if (t) {
+      return t;
+    }
   }
   return null;
 }

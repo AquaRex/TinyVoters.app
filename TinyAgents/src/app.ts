@@ -33,6 +33,8 @@ export const app = {
   override: null as Tower | null,
   toast: (_msg: string): void => undefined,
   selectAgent: (_a: Agent): void => undefined,
+  /** Settings > Time speed (main wires the clock). */
+  timeSpeed: (_speed: number): void => undefined,
   get floors(): Floor[] {
     return this.building.floors;
   },

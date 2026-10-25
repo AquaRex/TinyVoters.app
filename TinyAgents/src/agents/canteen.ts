@@ -1,3 +1,4 @@
+import { aiOn, serve } from '../mind/brain';
 import type { SpotRef } from '../world/office';
 import type { Agent, Step, Task } from './agent';
 import type { Director } from './director';
@@ -107,8 +108,12 @@ function queueStep(cd: Director, line: Line): Step {
       }
       if (chef) {
         chef.face(a.x, a.y);
-        chef.say(pickFrom(SERVED_LINES, cd.rand), 1.8);
-        a.sayLater(pickFrom(THANKS, cd.rand), 0.8, 1.6);
+        if (aiOn()) {
+          serve(chef, a);
+        } else {
+          chef.say(pickFrom(SERVED_LINES, cd.rand), 1.8);
+          a.sayLater(pickFrom(THANKS, cd.rand), 0.8, 1.6);
+        }
       }
       track(a).carry = 'tray';
       return true;

@@ -6,7 +6,7 @@ import { cream, mustard, plant, red, sprite, terracotta, walnut, yellow } from '
 import { TILE } from '../config';
 import { Rect } from '../render/renderer';
 import { PlacedItem } from '../world/layout';
-import { DIR_STEP } from '../world/office';
+import { DIR_STEP, SpotRef } from '../world/office';
 
 // Makes Claude's work visible around the person: their desk fills up over a session (paper stack per edit, a
 // crumpled ball per error, empty cups, a trophy after a long turn), folders and notes in hand, the QA bench lamp,
@@ -118,6 +118,18 @@ const papers = lazy(() =>
   }),
 );
 
+/** One printed meeting handout: a sheet with a heading and lines of text. */
+const sheet = lazy(() =>
+  sprite(7, 6, (p) => {
+    p.rect(0, 0, 7, 5, cream[6]);
+    p.hline(1, 1, 4, terracotta[3]);
+    p.hline(1, 2, 5, cream[3]);
+    p.hline(1, 3, 4, cream[3]);
+    p.hline(0, 5, 7, cream[2]);
+    p.vline(6, 1, 4, cream[4]);
+  }),
+);
+
 /** Where a held item goes in the 32 x 48 frame per facing (x for a w-wide item), and whether the body hides it. */
 function heldAt(a: Agent, w: number, big: boolean): [number, number, boolean] {
   switch (a.dir) {
@@ -190,6 +202,11 @@ class WorkVisibility {
         }
         s.hadMug = a.mug > 0;
       }
+      const t = track(a);
+      if (s && t.carry === 'sheet' && a.seated && this.desk(a) && this.d.spotByKey(a.homeDesk)?.x === a.tx && this.d.spotByKey(a.homeDesk)?.y === a.ty) {
+        t.carry = null;
+        s.edits += 2;
+      }
     }
   }
 
@@ -248,12 +265,23 @@ class WorkVisibility {
         }
       });
     }
-    for (const a of this.d.agents) {
-      const carry = track(a).carry;
-      if ((carry !== 'folder' && carry !== 'papers') || a.seated || a.hidden || a.alpha <= 0) {
+    for (const m of this.d.staff.meetings.list) {
+      if (m.room.d !== this.d) {
         continue;
       }
-      const img = carry === 'folder' ? folder() : papers();
+      for (const seat of m.sheets.values()) {
+        const at = this.onTable(seat);
+        if (at) {
+          push(at[2], (ctx) => ctx.drawImage(sheet(), at[0], at[1]));
+        }
+      }
+    }
+    for (const a of this.d.agents) {
+      const carry = track(a).carry;
+      if ((carry !== 'folder' && carry !== 'papers' && carry !== 'sheet') || a.seated || a.hidden || a.alpha <= 0) {
+        continue;
+      }
+      const img = carry === 'folder' ? folder() : carry === 'sheet' ? sheet() : papers();
       const [hx, hy, behind] = heldAt(a, img.width, carry === 'papers');
       const [sx, sy] = a.spriteOrigin();
       push(a.y + (behind ? -0.01 : 0.01), (ctx) => {
@@ -287,6 +315,20 @@ class WorkVisibility {
         }
       });
     }
+  }
+
+  /** Top-left of a handout lying on the table in front of a seat, and its depth key (just above the table top). */
+  private onTable(seat: SpotRef): [number, number, number] | null {
+    const [fx, fy] = DIR_STEP[seat.facing];
+    const table = this.d.office.itemAt(seat.x + fx, seat.y + fy, 'object');
+    const parts = table && this.d.office.variantOf(table)?.frames[0];
+    if (!table || !parts?.length) {
+      return null;
+    }
+    const top = Math.max(...parts.map((p) => p.z));
+    const x = seat.x * TILE + 16 + (seat.px ?? 0) + fx * 21 - 3;
+    const y = seat.y * TILE + (fy > 0 ? 30 : fy < 0 ? -14 : 6);
+    return [Math.round(x), Math.round(y), table.y * TILE + top + 0.2];
   }
 
   afterLighting(ctx: CanvasRenderingContext2D): void {

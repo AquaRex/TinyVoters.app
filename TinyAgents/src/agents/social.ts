@@ -5,11 +5,20 @@ import {
 
 export type ConvKind = 'chat' | 'seated' | 'meeting' | 'lunch';
 
+/** Model-written conversations: lines before a speaker may wrap up, and the most lines, per kind. */
+const WRITTEN_TURNS: Record<ConvKind, [min: number, max: number]> = { chat: [3, 6], seated: [3, 6], lunch: [4, 8], meeting: [6, 10] };
+
 /**
  * A conversation between two or more people: once everyone is in place they take turns talking (talk / sitTalk
  * poses with short bubbles), then part ways. Meetings wait for everyone to sit down first.
  */
 export class Conversation {
+  /** AI staff: writes a speaker's next line from its own model (null: use the built-in lines). */
+  /** Called once when a conversation ends. */
+  static onEnd: ((c: Conversation) => void) | null = null;
+  static writer: ((c: Conversation, speaker: Agent) => Promise<{ say: string; end: boolean; icon?: string } | null> | null) | null = null;
+  /** AI staff: members whose own mind can write their lines get the turns (Claude subagents have none). */
+  static voiced: ((a: Agent) => boolean) | null = null;
   members: Agent[];
   /** members who are in place */
   present = new Set<Agent>();
@@ -19,6 +28,18 @@ export class Conversation {
   private lines: number;
   private last: Agent | null = null;
   private answer: string | null = null;
+  /** what has been said so far, in order */
+  log: { who: Agent; text: string }[] = [];
+  /** performance.now() when the talking started */
+  startedAt = performance.now();
+  private writing = false;
+  private turns = 0;
+  private now = 0;
+
+  /** Whether a written conversation has gone on long enough for its speakers to start wrapping up. */
+  get winding(): boolean {
+    return this.log.length >= WRITTEN_TURNS[this.kind][1] - 2;
+  }
 
   constructor(
     readonly kind: ConvKind,
@@ -33,6 +54,13 @@ export class Conversation {
     const chat = members.reduce((s, m) => s + m.traits.chattiness, 0) / members.length;
     const base = kind === 'meeting' ? 9 : kind === 'lunch' ? 6 : 3;
     this.lines = base + Math.round(chat * 4 + rand() * 3) + (members.length - 2) * 2;
+  }
+
+  /** Starts from lines already said (someone answered a remark): the next turn replies to the last of them. */
+  seed(lines: { who: Agent; text: string }[]): void {
+    this.log = [...lines];
+    this.last = lines[lines.length - 1]?.who ?? null;
+    this.turns = lines.length;
   }
 
   arrive(a: Agent): void {
@@ -51,6 +79,9 @@ export class Conversation {
   }
 
   end(): void {
+    if (!this.done) {
+      Conversation.onEnd?.(this);
+    }
     this.done = true;
     for (const m of this.members) {
       if (m.conv === this) {
@@ -68,6 +99,7 @@ export class Conversation {
   }
 
   update(now: number): void {
+    this.now = now;
     if (this.done) {
       return;
     }
@@ -79,11 +111,12 @@ export class Conversation {
           }
         }
         this.started = !this.done;
+        this.startedAt = performance.now();
         this.nextAt = now + 0.4 + this.rand() * 0.6;
       }
       return;
     }
-    if (now < this.nextAt) {
+    if (now < this.nextAt || this.writing) {
       return;
     }
     if (this.lines <= 0) {
@@ -91,16 +124,44 @@ export class Conversation {
       return;
     }
     const speaker = this.pickSpeaker();
-    const text = this.lineFor(speaker);
+    const written = Conversation.writer?.(this, speaker);
+    if (!written) {
+      this.speak(speaker, this.lineFor(speaker));
+      return;
+    }
+    this.writing = true;
+    void written.then((r) => {
+      this.writing = false;
+      if (this.done || !this.members.includes(speaker)) {
+        return;
+      }
+      if (!r) {
+        // the speaker's mind had nothing sensible to say: a beat of silence, never a canned line in a written chat
+        this.lines--;
+        this.nextAt = this.now + 0.6;
+        return;
+      }
+      this.speak(speaker, r.say, r.icon);
+      const [min, max] = WRITTEN_TURNS[this.kind];
+      if ((r.end && this.turns + 1 >= min) || ++this.turns >= max) {
+        this.lines = 0;
+      }
+    });
+  }
+
+  private speak(speaker: Agent, text: string, icon?: string): void {
     const seconds = 1.8 + Math.min(1.4, text.length * 0.06);
-    speaker.say(text, seconds);
+    speaker.say(text, seconds, icon);
     this.last = speaker;
+    this.log.push({ who: speaker, text });
     this.lines--;
-    this.nextAt = now + seconds + 0.25 + this.rand() * 0.7;
+    this.nextAt = this.now + seconds + 0.25 + this.rand() * 0.7;
   }
 
   private pickSpeaker(): Agent {
-    const options = this.members.filter((m) => m !== this.last && this.present.has(m));
+    const all = this.members.filter((m) => m !== this.last && this.present.has(m));
+    const voiced = Conversation.voiced ? all.filter(Conversation.voiced) : [];
+    const options = voiced.length ? voiced : all;
     if (!options.length) {
       return this.members[0];
     }

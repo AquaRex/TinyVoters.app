@@ -49,7 +49,7 @@ export interface WorkTrack {
   dingAt: number;
   shredDue: boolean;
   /** what's in their hands (or pushed: the cleaners' vacuum and mop cart) */
-  carry: 'folder' | 'papers' | 'tray' | 'vacuum' | 'mop' | null;
+  carry: 'folder' | 'papers' | 'sheet' | 'tray' | 'vacuum' | 'mop' | null;
   spawnedAt: number;
   /** (lead) subagents waiting for their brief */
   handoffs: Agent[];

@@ -1,3 +1,6 @@
+import { app } from '../app';
+import { ux } from '../ui/prefs';
+
 const params = new URLSearchParams(location.search);
 const forcedDate = params.get('date');
 const forcedWeather = params.get('weather');
@@ -20,24 +23,57 @@ export function season(d = today()): Season {
   return m === 11 || m <= 1 ? 'winter' : m <= 4 ? 'spring' : m <= 7 ? 'summer' : 'autumn';
 }
 
-const ODDS: Record<Season, [rain: number, snow: number]> = {
-  winter: [0.18, 0.34],
-  spring: [0.3, 0.02],
-  summer: [0.14, 0],
-  autumn: [0.34, 0.03],
-};
+/** Chance of rain for each spell. */
+const RAIN_ODDS: Record<Season, number> = { winter: 0.3, spring: 0.28, summer: 0.12, autumn: 0.32 };
 
-/** The day's weather: deterministic per date with seasonal odds, or forced with ?weather=rain|snow|clear. */
-export function weather(d = today()): Weather {
+function hash(n: number): number {
+  let h = Math.imul(n, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+/**
+ * The spell the game clock is in. A day is cut into spells of 45-90 minutes, each rolled with the season's rain odds
+ * from the date and the spell's number, so every viewer sees the same weather at the same time.
+ */
+function spell(): { key: number; wet: boolean } {
+  const d = today();
+  const day = d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate();
+  const minute = app.renderer.lighting.hour * 60;
+  let n = 0;
+  for (let end = 0; ; n++) {
+    end += 45 + hash(day * 64 + n) * 45;
+    if (minute < end) {
+      break;
+    }
+  }
+  return { key: day * 64 + n, wet: hash(day * 64 + n + 0x51ed) < RAIN_ODDS[season(d)] };
+}
+
+/** The weather button's flip of the current spell (rain to sunny or back); the next spell rolls on its own again. */
+let flipped: { key: number; wet: boolean } | null = null;
+
+export function toggleRain(): void {
+  flipped = { key: spell().key, wet: !raining() };
+}
+
+function raining(): boolean {
+  const s = spell();
+  return flipped && flipped.key === s.key ? flipped.wet : s.wet;
+}
+
+/** December, unless switched off in Settings: snow on the ground all month, and what falls is snow. */
+export function snowSeason(): boolean {
+  return ux.snow && today().getMonth() === 11;
+}
+
+/** The weather right now: forced with ?weather=rain|snow|clear, else the current spell (flipped by the button). */
+export function weather(): Weather {
   if (forcedWeather === 'rain' || forcedWeather === 'snow' || forcedWeather === 'clear') {
     return forcedWeather;
   }
-  let h = Math.imul(d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate(), 0x9e3779b1);
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  const r = ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-  const [rain, snow] = ODDS[season(d)];
-  return r < snow ? 'snow' : r < snow + rain ? 'rain' : 'clear';
+  return raining() ? (snowSeason() ? 'snow' : 'rain') : 'clear';
 }
 
 export function isFriday(d = today()): boolean {

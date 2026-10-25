@@ -1,5 +1,5 @@
 import { ux } from './prefs';
-import { audio, burst, tone } from './sound';
+import { audio, burst, channel, tone } from './sound';
 
 const BPM = 74;
 const EIGHTH = 30 / BPM;
@@ -29,20 +29,20 @@ function setup(ctx: AudioContext): void {
   warm.frequency.value = 3800;
   bus = ctx.createGain();
   bus.gain.value = 0;
-  bus.connect(warm).connect(ctx.destination);
+  bus.connect(warm).connect(channel('music')!);
 }
 
-/** Sparse pops and a faint hiss, looped. */
+/** Sparse, rounded pops and a faint hiss, looped. */
 function crackleBuffer(ctx: AudioContext): AudioBuffer {
-  const buf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
   const d = buf.getChannelData(0);
   let pop = 0;
   for (let i = 0; i < d.length; i++) {
-    if (Math.random() < 0.00025) {
-      pop = (Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.5);
+    if (Math.random() < 0.00007) {
+      pop = (Math.random() < 0.5 ? -1 : 1) * (0.15 + Math.random() * 0.25);
     }
-    d[i] = (Math.random() * 2 - 1) * 0.012 + pop;
-    pop *= 0.82;
+    d[i] = (Math.random() * 2 - 1) * 0.007 + pop;
+    pop *= 0.9;
   }
   return buf;
 }
@@ -53,10 +53,13 @@ function startCrackle(ctx: AudioContext): void {
   crackle.loop = true;
   const hp = ctx.createBiquadFilter();
   hp.type = 'highpass';
-  hp.frequency.value = 900;
+  hp.frequency.value = 700;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2800;
   const g = ctx.createGain();
-  g.gain.value = 0.18;
-  crackle.connect(hp).connect(g).connect(bus!);
+  g.gain.value = 0.09;
+  crackle.connect(hp).connect(lp).connect(g).connect(bus!);
   crackle.start();
 }
 
@@ -137,7 +140,7 @@ function schedule(): void {
   }
 }
 
-/** Applies the Music toggle and volume (fades in or out). Starts once audio is unlocked by a gesture. */
+/** Applies the Music switch (fades in or out; the volume is the music channel's). Starts once audio is unlocked by a gesture. */
 export function applyMusic(): void {
   const ctx = audio();
   if (!ctx) {
@@ -152,7 +155,7 @@ export function applyMusic(): void {
     crackle.stop(ctx.currentTime + 0.6);
     crackle = null;
   }
-  bus!.gain.setTargetAtTime(ux.music ? ux.volume * 0.45 : 0, ctx.currentTime, 0.2);
+  bus!.gain.setTargetAtTime(ux.music ? 0.45 : 0, ctx.currentTime, 0.2);
 }
 
 export function initMusic(): void {
