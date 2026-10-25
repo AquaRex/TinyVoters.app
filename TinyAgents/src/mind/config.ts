@@ -12,8 +12,13 @@ export const MIND_BASE = 'Qwen3.5-0.8B-q4f16_1-MLC';
 /** KV cache size: prompts are tiny, so a short window keeps VRAM low (the prebuilt libraries are compiled for small windows). */
 export const MIND_CONTEXT = 1024;
 
-/** Where the downloaded weights persist between visits ('cache': the browser Cache API). */
-export const MIND_CACHE = 'cache';
+/**
+ * Where the downloaded weights persist between visits. IndexedDB, not the Cache API: Chrome aborts Cache.add while it
+ * streams a slow response into storage, which Hugging Face's CDN reliably triggers; IndexedDB downloads first, then stores.
+ */
+export const MIND_CACHE = 'indexeddb';
+/** Where earlier versions kept the weights (the Cache API), cleared so they don't sit in storage twice. */
+export const OLD_MIND_CACHES = ['webllm/model', 'webllm/config', 'webllm/wasm'];
 
 /** Pause after each request, as a share of its run time (at least MIND_MIN_GAP ms), so drawing keeps the GPU. */
 export const MIND_GAP = 0.25;

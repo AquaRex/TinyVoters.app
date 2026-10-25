@@ -1,5 +1,5 @@
 import { AppConfig, WebWorkerMLCEngine, hasModelInCache, prebuiltAppConfig } from '@mlc-ai/web-llm';
-import { MIND_BASE, MIND_CACHE, MIND_CONTEXT, MIND_GAP, MIND_MIN_GAP, MIND_MODEL, MIND_MODEL_URL } from './config';
+import { MIND_BASE, MIND_CACHE, MIND_CONTEXT, MIND_GAP, MIND_MIN_GAP, MIND_MODEL, MIND_MODEL_URL, OLD_MIND_CACHES } from './config';
 
 /** Conversation replies first, then reactions, then routine decisions. */
 export type Priority = 0 | 1 | 2;
@@ -114,7 +114,7 @@ class Engine {
       } catch (e) {
         this.teardown();
         // a dropped connection mid-download: the shards already fetched stay cached, so a retry picks up from there
-        if (!(e instanceof DOMException && e.name === 'NetworkError') || attempt === DOWNLOAD_TRIES) {
+        if (!/NetworkError|Failed to fetch|network error/i.test(String(e)) || attempt === DOWNLOAD_TRIES) {
           this.set('error', e instanceof Error ? e.message.split('\n')[0].slice(0, 160) : String(e));
           return;
         }
@@ -128,6 +128,7 @@ class Engine {
   }
 
   private async load(): Promise<void> {
+    await Promise.all(OLD_MIND_CACHES.map((name) => caches.delete(name)));
     this.cached = await hasModelInCache(MIND_MODEL, APP_CONFIG).catch(() => false);
     const t0 = performance.now();
     let fetchStart = 0;
