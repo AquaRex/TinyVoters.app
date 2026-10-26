@@ -14,6 +14,8 @@ const MESSAGES_MAX = 300;
 const TOOL_STALE = 10 * 60e3;
 const APPROVAL_FOR = 10 * 60e3;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+/** 6 characters of 31 (no look-alikes): about 887 million codes. */
+const CODE_LENGTH = 6;
 
 export class HubError extends Error {
   constructor(message, status = 400) {
@@ -131,7 +133,7 @@ export class Office {
 
   /** The office code devices elsewhere connect with (see link.mjs), and the device token their requests run as. */
   remote() {
-    if (!this.data.officeCode) {
+    if (this.data.officeCode?.length !== CODE_LENGTH) {
       this.newCode();
     }
     return { code: this.data.officeCode, token: this.data.remoteToken };
@@ -142,7 +144,7 @@ export class Office {
     if (this.data.remoteToken) {
       delete this.data.devices[hash(this.data.remoteToken)];
     }
-    this.data.officeCode = Array.from({ length: 16 }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join('');
+    this.data.officeCode = Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join('');
     this.data.remoteToken = secret();
     this.data.devices[hash(this.data.remoteToken)] = iso(Date.now());
     this.changed();

@@ -10,8 +10,8 @@ const LINK_NOTE: Record<string, string> = {
   offline: "Your PC isn't answering: is it on, with the Tiny Agents hub running?",
 };
 
-/** 16 characters in groups of four, easier to read and type. */
-const grouped = (code: string) => code.replace(/(.{4})(?=.)/g, '$1-');
+/** 6 characters as two groups of three, easier to read and type. */
+const grouped = (code: string) => code.replace(/(.{3})(?=.)/g, '$1-');
 
 /**
  * The Connect dialog. On the hub's computer the page connects on its own and shows the office code; on any other
@@ -67,7 +67,7 @@ export class ConnectDialog {
       'beforeend',
       `<h2>Connect to your PC</h2>
        <p>Enter the office code. It's under <b>Connect</b> on the PC running the Tiny Agents hub.</p>
-       <form class="cn-code"><input class="cn-hub" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH-JKLM-NPQR" aria-label="Office code" /><button class="primary">Connect</button></form>`,
+       <form class="cn-code"><input class="cn-hub" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC-123" aria-label="Office code" /><button class="primary">Connect</button></form>`,
     );
     const input = box.querySelector<HTMLInputElement>('.cn-hub')!;
     const button = box.querySelector<HTMLButtonElement>('form button')!;

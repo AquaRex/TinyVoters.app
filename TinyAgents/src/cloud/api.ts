@@ -5,6 +5,9 @@ import { Link, LinkError } from './link';
 import approveScript from '../../server/tinyagents-approve.mjs?raw';
 
 const TOKEN_KEY = 'tiny-agents.device.v1';
+/** On another device, the office code takes the device token's place (kept apart, so the two never mix). */
+const CODE_KEY = 'tiny-agents.office-code.v1';
+const credentialKey = () => (onHubComputer() ? TOKEN_KEY : CODE_KEY);
 
 /** Set when the page was opened with ?visit=<token>: a read-only view of someone's office (states only). */
 export const visitToken: string | null = new URLSearchParams(location.search).get('visit');
@@ -66,7 +69,7 @@ async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise
 /** This device's token for its office, remembered for as long as the browser keeps site data. */
 export function deviceToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(credentialKey());
   } catch {
     return null;
   }
@@ -75,9 +78,9 @@ export function deviceToken(): string | null {
 function saveToken(token: string | null): void {
   try {
     if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(credentialKey(), token);
     } else {
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(credentialKey());
     }
   } catch {
     // storage unavailable: paired for this visit only
@@ -363,6 +366,7 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
       } catch (e) {
         if (e instanceof CloudError && e.message === 'not paired' && deviceToken() === token) {
           saveToken(null);
+          joinOffice().catch(() => undefined);
           close();
           streamToken = null;
           onStatus('unpaired');
