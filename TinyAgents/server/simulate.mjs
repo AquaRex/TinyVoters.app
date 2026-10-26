@@ -1,16 +1,14 @@
 // Fakes a few Claude Code sessions (with subagents) by posting hook events to your office.
 // Handy for watching the office without running real agents. Ctrl+C ends all fake sessions.
-//   npm run simulate -- <computer key> [sessions] [computers]
+//   npm run simulate -- <computer key> [sessions] [computers] [hub url]
 // With several computers, sessions are spread across "Sim PC 1", "Sim PC 2"… (one office floor each), and each
 // computer works on a few projects so sessions share project rooms.
-const SUPABASE_URL = 'https://hchyekrxubzuqrnlckpm.supabase.co';
-const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaHlla3J4dWJ6dXFybmxja3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjI3NDIsImV4cCI6MjA5OTgzODc0Mn0.IIfUjrwSEnrAzPuRrCUblli2fJ7dYJssj7jE-526OxE';
 const KEY = process.argv[2];
 const SESSIONS = Number(process.argv[3] ?? 3);
 const MACHINES = Math.max(1, Number(process.argv[4] ?? 1));
+const HUB = (process.argv[5] ?? 'http://127.0.0.1:7777').replace(/\/+$/, '');
 if (!/^[0-9a-f]{64}$/.test(KEY ?? '')) {
-  console.error('Usage: npm run simulate -- <computer key> [sessions] [computers]');
+  console.error('Usage: npm run simulate -- <computer key> [sessions] [computers] [hub url, default http://127.0.0.1:7777]');
   process.exit(1);
 }
 
@@ -46,9 +44,9 @@ let counter = 0;
 const machineName = (slot) => (MACHINES > 1 ? `Sim PC ${(slot % MACHINES) + 1}` : 'Simulator');
 
 async function post(evt, machine) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/tiny_ingest`, {
+  const res = await fetch(`${HUB}/ingest`, {
     method: 'POST',
-    headers: { apikey: ANON_KEY, 'content-type': 'application/json', 'x-tiny-key': KEY, 'x-tiny-machine': machine },
+    headers: { 'content-type': 'application/json', 'x-tiny-key': KEY, 'x-tiny-machine': machine },
     body: JSON.stringify(evt),
   }).catch((e) => ({ ok: false, status: 0, text: async () => String(e) }));
   if (!res.ok) {

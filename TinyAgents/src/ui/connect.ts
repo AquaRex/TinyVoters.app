@@ -2,7 +2,6 @@ import {
   CloudError, approvalsPrompt, awayInfo, claimCode, createHome, deviceToken, forgetDevice, hooksJson, ingestKey, installPrompt, pairCode,
   revokeVisitorLink, setAway, visitToken, visitorLink,
 } from '../cloud/api';
-import { disablePush, enablePush, pushOn, pushProblem } from '../cloud/push';
 
 type View = 'start' | 'code' | 'home';
 
@@ -145,10 +144,6 @@ export class ConnectDialog {
          <div class="cn-pair"></div>
        </section>
        <section>
-         <h3>Phone alerts</h3>
-         <div class="cn-push"></div>
-       </section>
-       <section>
          <h3>Visitor link</h3>
          <p>A read-only view for friends: they see who's busy or waiting, never what Claude is doing, your projects or your chats.</p>
          <div class="cn-actions"><button data-act="visit">Copy visitor link</button><button data-act="unvisit">Revoke link</button></div>
@@ -224,24 +219,6 @@ export class ConnectDialog {
       this.notify(on ? 'Away mode on' : 'Away mode off');
     });
     awayInfo().then((i) => away.set(i.away), fail);
-
-    const push = box.querySelector<HTMLElement>('.cn-push')!;
-    const problem = pushProblem();
-    if (problem === 'missing-setup') {
-      push.innerHTML = `<p class="cn-small">Phone alerts aren't set up for this site yet: it needs push keys and the <code>tiny-push</code> function. See <b>docs/CLAUDE_INTEGRATION.md → Phone alerts</b>.</p>`;
-      return;
-    }
-    if (problem === 'unsupported') {
-      push.innerHTML = `<p class="cn-small">This browser can't receive alerts. On iPhone or iPad, tap Share → <b>Add to Home Screen</b>, open Tiny Agents from there, then turn alerts on here.</p>`;
-      return;
-    }
-    push.innerHTML = `<p>A notification on this device when someone needs your permission, or finishes a long task. Works with the app closed.</p>
-      <div class="cn-row"><div class="cn-seg" data-toggle="push"><button data-v="off">Off</button><button data-v="on">On</button></div></div>`;
-    const alerts = this.toggle(push, 'push', async (on) => {
-      await (on ? enablePush() : disablePush());
-      this.notify(on ? 'Alerts on for this device' : 'Alerts off for this device');
-    });
-    pushOn().then((on) => alerts.set(on), () => alerts.set(false));
   }
 
   /** An Off/On segment; `change` returns false to cancel. Disabled until its current value is known. */

@@ -1990,14 +1990,6 @@ body.ambient-idle #world {
   padding: 4px 8px;
 }
 
-.st-ai-bar {
-  display: block;
-  width: 100%;
-  height: 8px;
-  margin-top: 4px;
-  accent-color: var(--accent);
-}
-
 .ap-mind {
   margin-top: 12px;
   padding: 6px 10px;
@@ -2037,19 +2029,4 @@ body.ambient-idle #world {
 .ap-mind-off {
   color: var(--muted);
   font-size: 11px;
-}
-
-/* AI staff loading in the background */
-#mindChip {
-  position: fixed;
-  top: 64px;
-  left: 16px;
-  z-index: 2;
-  padding: 2px 8px;
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--panel);
-  border: 2px solid var(--frame);
-  border-radius: 3px;
-  pointer-events: none;
 }

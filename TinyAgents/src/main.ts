@@ -21,7 +21,6 @@ import { initReport, openBoardAt } from './ui/report';
 import { openSignAt } from './features/plaques';
 import { ux } from './ui/prefs';
 import { initSettings } from './ui/settings';
-import { initMindChip } from './ui/mindChip';
 import { toggleRain, Weather, weather } from './world/calendar';
 import { addFloor, floorOf, initFloors, removeBlocker, removeFloor, resetBuilding, routeInfos } from './world/floors';
 
@@ -258,7 +257,6 @@ initMusic();
 initReplay();
 initReport();
 initSettings();
-initMindChip();
 initAmbient();
 
 // ---------- input ----------

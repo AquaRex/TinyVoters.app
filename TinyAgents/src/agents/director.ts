@@ -9,7 +9,7 @@ import { Lift } from './lift';
 import { NEIGHBORS, Nav, Tile } from './nav';
 import { NeedId, Needs, criticalNeed, decay, restore, urgency } from './needs';
 import { adoptLegacy, lastDesk, personFor, staffSlot } from './people';
-import { PROFESSION_BY_ID, SHY_GREETINGS, greetings, pickFrom, professionFor, toolPhrase } from './professions';
+import { PROFESSION_BY_ID, SHY_GREETINGS, greetings, pickFrom, professionForAgent, toolPhrase } from './professions';
 import { ConvKind, Conversation } from './social';
 import { Target, call, defer, hangout, pause, unless, walkTo } from './steps';
 import type { Staff } from './staff';
@@ -21,7 +21,7 @@ import { outdoorAppeal, pizzaTime } from '../world/calendar';
 import { NPC_ROLES, itOnDuty, npcChoices, npcDef, npcTask } from './buildingStaff';
 import { canteenLunch } from './canteen';
 import { roomAt, roomsOf } from './rooms';
-import { Choice, aiOn, noteTurn, opener, prefetch, remark, takeDecision, topicOf, wantsPrefetch } from '../mind/brain';
+import { Choice, aiOn, favourPlan, muse, noteTurn, opener, plannedChat, prefetch, remark, takeDecision, topicOf, wantsPrefetch } from '../mind/brain';
 
 interface ActivityDef {
   id: string;
@@ -315,7 +315,7 @@ export class Director {
   spawn(info: AgentInfo, home: Director, present: boolean): void {
     const npc = npcDef(info.id);
     const ident = npc ? { name: npc.name, profession: npc.role, index: -2 } : demoIdentity(info.id);
-    const role = (npc && NPC_ROLES.get(npc.role)) || (ident && PROFESSION_BY_ID.get(ident.profession)) || professionFor(info.type);
+    const role = (npc && NPC_ROLES.get(npc.role)) || (ident && PROFESSION_BY_ID.get(ident.profession)) || professionForAgent(info.type, info.description);
     const everyone = this.staff.agents;
     const parent = info.parent ? everyone.find((o) => o.id === info.parent) : undefined;
     const slot = npc ? info.id : ident && ident.index >= 0 ? `demo#${ident.index}` : staffSlot(info, parent?.slot, new Set(everyone.filter((o) => !o.leaving).map((o) => o.slot)));
@@ -757,6 +757,9 @@ export class Director {
         }
       }
       this.review(a);
+      if (a.arrived && !a.leaving && !a.hidden) {
+        muse(a);
+      }
       if (a.arrived && !a.leaving && !a.info.busy && !a.info.waiting && a.task && IDLE_KINDS.includes(a.task.kind) && wantsPrefetch(a)) {
         prefetch(a, a.npc ? npcChoices(this, a) : this.idleChoices(a).slice(0, 3));
       }
@@ -939,6 +942,11 @@ export class Director {
     if (!a.reactT) {
       a.reactT = this.time + (a.info.waiting ? 0.3 + this.rand() * 0.8 : 0.6 + this.rand() * 2);
     } else if (this.time >= a.reactT) {
+      // in the middle of a conversation they finish their turn and excuse themselves first (it lets them go)
+      if (a.conv?.started && !a.conv.done) {
+        a.conv.excuse(a);
+        return;
+      }
       a.reactT = 0;
       this.interrupt(a);
     }
@@ -1653,13 +1661,13 @@ export class Director {
       const u = (0.04 + a.traits.diligence * 0.12) * this.recency(a, 'desk') * (0.8 + this.rand() * 0.4);
       options.push({ label: 'back to your desk', u, make: () => this.deskTask(a) });
     }
-    const partner = this.chatPartner(a);
+    const partner = this.plannedPartner(a) ?? this.chatPartner(a);
     if (partner) {
       const u = urgency(a.needs.social) * (0.3 + a.traits.sociability) * 1.1 * this.recency(a, 'chat');
       options.push({ label: aiOn() ? `chat with ${partner.name} about ${topicOf(partner)}` : `chat with ${partner.name}`, u: aiOn() ? Math.max(u, 0.2) : u, make: () => this.seekChat(a, partner) });
     }
     options.push({ label: 'stretch your legs', u: (0.05 + (1 - a.traits.diligence) * 0.04) * this.recency(a, 'wander'), make: () => this.wanderTask(a) });
-    return options.sort((p, q) => q.u - p.u);
+    return favourPlan(a, options).sort((p, q) => q.u - p.u);
   }
 
   /**
@@ -1847,6 +1855,12 @@ export class Director {
     }
     const step = a.task.steps[0];
     return !!step?.chatty || (a.task.kind === 'idle' && a.moving && !a.info.busy);
+  }
+
+  /** The colleague the agent's mind plans to talk to, when they're around and free. */
+  private plannedPartner(a: Agent): Agent | undefined {
+    const name = plannedChat(a);
+    return name ? this.agents.find((b) => b !== a && b.name === name && this.chatAvailable(b) && !b.info.busy && !this.zoneDiffers(a, b.tx, b.ty)) : undefined;
   }
 
   private chatPartner(a: Agent): Agent | undefined {

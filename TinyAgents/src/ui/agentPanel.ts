@@ -374,7 +374,7 @@ function mindSection(a: Agent): string {
     return '';
   }
   if (!engine.ready) {
-    const why = engine.state === 'loading' ? 'the model is loading' : engine.note || 'AI staff is off';
+    const why = engine.state === 'loading' ? 'the hub is starting the model' : engine.note || 'AI staff is off';
     return `<div class="ap-mind-off">Mind not active: ${escapeHtml(why)}</div>`;
   }
   if (a.isSub) {
@@ -384,6 +384,7 @@ function mindSection(a: Agent): string {
   const m = mindOf(a);
   const rows = [
     m?.thought ? mindRow('Thinking', `<i>“${escapeHtml(m.thought.text)}”</i>`, m.thought.at) : '',
+    m?.plan ? mindRow('Plans', escapeHtml(m.plan.label), m.plan.at) : '',
     m?.lastLine ? mindRow('Said', `“${escapeHtml(m.lastLine.text)}”`, m.lastLine.at) : '',
     m?.last ? mindRow('Did', `${escapeHtml(m.last.chosen)} <small>(of ${escapeHtml(m.last.options.join(', '))})</small>`, m.last.at) : '',
   ].filter(Boolean);

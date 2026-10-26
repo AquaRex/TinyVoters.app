@@ -59,8 +59,12 @@ export interface Mind {
   since: number;
   last: { options: string[]; chosen: string; say: string; at: number; ms: number } | null;
   lastLine: { text: string; at: number; ms: number } | null;
-  /** the latest private thought (shown in the worker's window, never said aloud) */
+  /** the latest private thought (shown in the worker's window, never said aloud, and on its mind in every prompt) */
   thought: { text: string; at: number; ms: number } | null;
+  /** what it intends to do next when free (an option label like "coffee" or "chat with Theo"), from a thought or a talk */
+  plan: { label: string; at: number } | null;
+  /** when it next thinks on its own (performance.now) */
+  nextThought: number;
 }
 
 const minds = new WeakMap<Agent, Mind>();
@@ -76,7 +80,7 @@ function mind(a: Agent): Mind | undefined {
   }
   let m = minds.get(a);
   if (!m) {
-    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null };
+    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null, plan: null, nextThought: performance.now() + 5000 + Math.random() * 40000 };
     minds.set(a, m);
   }
   return m;
@@ -301,6 +305,8 @@ export function context(a: Agent, focus?: Agent): string {
     work(a) ? `Your work: ${work(a)}.` : '',
     focus ? `With: ${about(a, focus)}.` : '',
     seen.length ? `Also here: ${seen.map((b) => `${b.name} (${b.role.title}, ${b.statusText.replace(/ · .*/, '').toLowerCase()})`).join('; ')}.` : focus ? '' : 'Nobody else is here.',
+    m?.thought && performance.now() - m.thought.at < ON_MIND * 1000 ? `On your mind: "${m.thought.text}"` : '',
+    m && planOf(m) ? `Plan: ${m.plan!.label} (decided ${ago(performance.now() - m.plan!.at)}).` : '',
     m?.memory.length ? `Recent: ${m.memory.join(' ')}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -310,6 +316,10 @@ export function context(a: Agent, focus?: Agent): string {
 const URGENT: Partial<Record<NeedId, string>> = { bladder: 'needs the restroom', hunger: 'starving', thirst: 'very thirsty', energy: 'exhausted' };
 /** Seconds between fresh thoughts while the player keeps a worker's window open. */
 const THOUGHT_EVERY = 20;
+/** Seconds between thoughts of their own (random in this range). */
+const MUSE_EVERY: [number, number] = [45, 100];
+/** Seconds a thought stays on the mind (in every prompt). */
+const ON_MIND = 240;
 const thoughtAsked = new WeakMap<Agent, number>();
 
 /** What weighs on the mind beyond the usual context: how long the meeting has gone on, a pressing need, what's next. */
@@ -330,7 +340,23 @@ function preoccupations(a: Agent): string[] {
   return out;
 }
 
-/** The worker's window is open: ask their mind what they're thinking (at most every THOUGHT_EVERY s). */
+/** Asks the agent's mind what it's thinking; the thought stays on its mind and may set a plan. */
+function think(a: Agent, m: Mind, priority: Priority): void {
+  const now = performance.now();
+  m.nextThought = now + (MUSE_EVERY[0] + Math.random() * (MUSE_EVERY[1] - MUSE_EVERY[0])) * 1000;
+  const plans = planLabels(a);
+  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 110 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
+  const user = [context(a), ...preoccupations(a), 'What are you thinking right now?'].join('\n');
+  void engine.ask(a, priority, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 44, () => a.gone).then((r) => {
+    const text = words(r?.json.think, 16);
+    if (text.split(' ').length >= 3 && !offClock(text, user)) {
+      m.thought = { text, at: performance.now(), ms: performance.now() - now };
+      setPlan(a, m, r?.json.plan);
+    }
+  });
+}
+
+/** The worker's window is open: a fresh thought at most every THOUGHT_EVERY s, shown there. */
 export function wantThought(a: Agent): void {
   const m = mind(a);
   const now = performance.now();
@@ -338,14 +364,82 @@ export function wantThought(a: Agent): void {
     return;
   }
   thoughtAsked.set(a, now);
-  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 110 } }, required: ['think'] };
-  const user = [context(a), ...preoccupations(a), 'What are you thinking right now?'].join('\n');
-  void engine.ask(a, REPLY, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 36, () => a.gone).then((r) => {
-    const text = words(r?.json.think, 16);
-    if (text.split(' ').length >= 3 && !offClock(text, user)) {
-      m.thought = { text, at: performance.now(), ms: performance.now() - now };
-    }
-  });
+  think(a, m, REPLY);
+}
+
+/** Every worker thinks on its own now and then, and soon after something happens to it (see soon()). */
+export function muse(a: Agent): void {
+  const m = mind(a);
+  if (m && performance.now() >= m.nextThought && !engine.pending.has(a)) {
+    think(a, m, ROUTINE);
+  }
+}
+
+/** Something happened that's worth a thought in a moment (a talk ended, its work finished, someone spoke to it). */
+function soon(a: Agent): void {
+  const m = minds.get(a);
+  if (m) {
+    m.nextThought = Math.min(m.nextThought, performance.now() + 2000 + Math.random() * 3000);
+  }
+}
+
+// ---------------------------------------------------------------- plans: what a mind intends to do next when free
+
+/** Free-time options a plan can name (the director's labels for them) besides "chat with <someone here>". */
+const PLAN_LABELS = ['coffee', 'water', 'a snack', 'lunch', 'restroom', 'read a book', 'sketch on the whiteboard', 'play foosball', 'relax on the sofa', 'walk in the park', 'back to your desk', 'stretch your legs'];
+/** Minutes a plan lasts before it's forgotten. */
+const PLAN_FOR = 15;
+
+/** What the agent may plan: 'none' (no new plan), an activity, or a chat with a colleague on this floor. Building staff don't plan. */
+function planLabels(a: Agent): string[] {
+  if (a.npc) {
+    return [];
+  }
+  const people = a.floor.agents.filter((b) => b !== a && !b.npc && !b.isSub && b.arrived && !b.gone).sort((p, q) => a.tilesTo(p) - a.tilesTo(q)).slice(0, 6);
+  return ['none', ...PLAN_LABELS, ...people.map((b) => `chat with ${b.name}`)];
+}
+
+/** The answer's "plan" field (only for those who plan). */
+function planProp(plans: string[]): Record<string, object> {
+  return plans.length ? { plan: { type: 'string', enum: plans } } : {};
+}
+
+function planKey(plans: string[]): string[] {
+  return plans.length ? ['plan'] : [];
+}
+
+function setPlan(a: Agent, m: Mind, plan: unknown): void {
+  if (typeof plan === 'string' && plan !== 'none' && planLabels(a).includes(plan)) {
+    m.plan = { label: plan, at: performance.now() };
+    console.info(`[mind] ${a.name} plans: ${plan}`);
+  }
+}
+
+/** The agent's current plan, while it lasts. */
+function planOf(m: Mind): string | null {
+  if (m.plan && performance.now() - m.plan.at > PLAN_FOR * 60000) {
+    m.plan = null;
+  }
+  return m.plan?.label ?? null;
+}
+
+/** Whether a free-time option is what the plan says ("lunch" covers every way of having lunch). */
+function fulfils(option: string, plan: string): boolean {
+  return option === plan || (plan === 'lunch' && (option.startsWith('lunch') || option === 'a bite to eat')) || (plan.startsWith('chat with ') && option.startsWith(`${plan} `));
+}
+
+/** The person the agent plans to chat with, if any. */
+export function plannedChat(a: Agent): string | null {
+  const m = minds.get(a);
+  const plan = m && planOf(m);
+  return plan?.startsWith('chat with ') ? plan.slice('chat with '.length) : null;
+}
+
+/** Ranks the planned option well above the rest, so the plan is on the shortlist and usually wins. */
+export function favourPlan(a: Agent, options: Choice[]): Choice[] {
+  const m = minds.get(a);
+  const plan = m && planOf(m);
+  return plan ? options.map((o) => (fulfils(o.label, plan) ? { ...o, u: o.u * 3 + 0.4 } : o)) : options;
 }
 
 // ---------------------------------------------------------------- output checks
@@ -497,6 +591,10 @@ export function takeDecision(a: Agent, build: () => Choice[]): Task | 'wait' | n
       const chosen = o === ordered[0] ? o.label : `${o.label} (${ordered[0].label} wasn't possible)`;
       m.last = { options: plan.options.map((x) => x.label), chosen, say, at: now, ms: plan.ms };
       console.info(`[mind] ${a.name} {${m.last.options.join(' | ')}} -> ${chosen} "${say}" ${Math.round(plan.ms)} ms${plan.waitFrom ? `, waited ${((now - plan.waitFrom) / 1000).toFixed(1)} s` : ''}`);
+      const intent = planOf(m);
+      if (intent && fulfils(o.label, intent)) {
+        m.plan = null;
+      }
       remember(a, `You chose: ${o.label}.`);
       if (say && listeners(a).length) {
         speak(a, m, say, plan.ms);
@@ -535,12 +633,14 @@ function react(a: Agent, event: string, question: string, apply: (say: string, m
   }
   reactedAt.set(a, now);
   remember(a, event);
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 60 } }, required: ['say'] };
+  const plans = planLabels(a);
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 60 }, ...planProp(plans) }, required: ['say', ...planKey(plans)] };
   const user = `${context(a, focus)}\n${event}\n${question}`;
-  void ask(a, m, REACTION, 'reaction', user, schema, 24, () => a.gone || a.leaving, 0.6).then((r) => {
+  void ask(a, m, REACTION, 'reaction', user, schema, 32, () => a.gone || a.leaving, 0.6).then((r) => {
     if (!r || a.gone || a.hidden) {
       return;
     }
+    setPlan(a, m, r.plan);
     const say = line(r.say, 10, echo, user);
     const ms = performance.now() - now;
     console.info(`[mind] ${a.name} reacts to "${event}" -> "${say || `(silent; model wrote ${JSON.stringify(r.say)})`}" ${Math.round(ms)} ms`);
@@ -598,6 +698,7 @@ export function serve(chef: Agent, eater: Agent): boolean {
 
 /** A line for an event the game already handles (meeting call, Claude finished or failed), only if someone hears it. */
 export function remark(a: Agent, event: string): boolean {
+  soon(a);
   if (mind(a) && !listeners(a).length) {
     return true;
   }
@@ -634,6 +735,7 @@ Agent.onSay = (s, text, icon) => {
   }
   quietRoom.set(room, now + 8000);
   addressed.delete(s);
+  soon(who);
   react(who, `${s.name} tells you: "${text}"`, `What do you say back to ${s.name}?`, (say, ms) => {
     const m = minds.get(who);
     if (!m || !earshot(s, who) || !canAnswer(who)) {
@@ -652,8 +754,11 @@ Agent.onSay = (s, text, icon) => {
 
 // ---------------------------------------------------------------- conversations
 
+/** Told to a speaker whose real work calls it out of a conversation: its line excuses it. */
+const CALLED_AWAY = 'Your work needs you right now: excuse yourself and go.';
+
 /** Each speaker's own mind writes its turn: it sees the conversation so far and replies to the last line. */
-Conversation.writer = (conv, speaker) => {
+Conversation.writer = (conv, speaker, excuse) => {
   if (!engine.ready) {
     return null;
   }
@@ -667,9 +772,10 @@ Conversation.writer = (conv, speaker) => {
   const secs = Math.round((performance.now() - started) / 1000);
   const kind = conv.kind === 'meeting' ? 'a meeting' : conv.kind === 'lunch' ? 'lunch' : 'a chat';
   const so = recent.length
-    ? `Talking for ${secs} s:\n${recent.map((l) => `${l.who.name}: "${l.text}"`).join('\n')}${conv.winding ? '\nYou have talked a while, time to wrap up and get back to work.' : ''}\nWhat do you say to ${recent[recent.length - 1].who === speaker ? other?.name ?? 'them' : recent[recent.length - 1].who.name}?`
+    ? `Talking for ${secs} s:\n${recent.map((l) => `${l.who.name}: "${l.text}"`).join('\n')}${excuse ? `\n${CALLED_AWAY}` : conv.winding ? '\nYou have talked a while, time to wrap up and get back to work.' : ''}\nWhat do you say to ${recent[recent.length - 1].who === speaker ? other?.name ?? 'them' : recent[recent.length - 1].who.name}?`
     : `You start ${kind} with ${other?.name ?? 'your coworker'} about ${other ? topicOf(other) : 'the day'}. What do you say?`;
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 70 }, end: { type: 'boolean' } }, required: ['say', 'end'] };
+  const plans = planLabels(speaker);
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 70 }, end: { type: 'boolean' }, ...planProp(plans) }, required: ['say', 'end', ...planKey(plans)] };
   const user = `${context(speaker, other)}\n${so}`;
   const t = performance.now();
   return ask(speaker, m, REPLY, 'reply', user, schema, 32, () => conv.done, 0.6).then((r) => {
@@ -679,7 +785,8 @@ Conversation.writer = (conv, speaker) => {
     }
     const ms = performance.now() - t;
     m.lastLine = { text: say, at: performance.now(), ms };
-    console.info(`[mind] ${speaker.name} in ${kind}: "${say}"${r.end ? ' (ends)' : ''} ${Math.round(ms)} ms`);
+    setPlan(speaker, m, r.plan);
+    console.info(`[mind] ${speaker.name} in ${kind}: "${say}"${r.end ? ' (ends)' : ''}${excuse ? ' (called away)' : ''} ${Math.round(ms)} ms`);
     queueMicrotask(() => noteTalk(conv));
     return { say, end: r.end === true, icon: AI_MARK };
   });
@@ -694,6 +801,7 @@ if (import.meta.env.DEV) {
 }
 Conversation.onEnd = (conv) => {
   noteTalk(conv);
+  conv.members.forEach(soon);
   if (conv.log.length >= 2 && engine.ready) {
     transcripts.push(conv.log.map((l) => `${l.who.name}: ${l.text}`).join('\n'));
   }

@@ -63,6 +63,36 @@ export const PROFESSIONS: Profession[] = [
     keywords: ['main', 'lead'],
   },
   {
+    id: 'mobile',
+    title: 'Mobile Dev',
+    badge: '#5bb8a6',
+    traits: t({ sociability: 0.6, chattiness: 0.55, coffee: 0.6, outdoorsy: 0.5, playful: 0.5 }),
+    likes: { play: 1.3, park: 1.2 },
+    look: { topColors: C(3, 6, 12, 14), tops: ['hoodie', 'tee', 'jacket'], accessories: ['headphones', 'cap', 'none'] },
+    phrases: ['works on my phone', 'notch again?', 'swipe it', 'app store pls', 'tap target!', 'offline first'],
+    keywords: ['mobile', 'ios', 'android', 'app', 'swift', 'kotlin', 'flutter', 'native'],
+  },
+  {
+    id: 'gamedev',
+    title: 'Game Dev',
+    badge: '#9b6fd1',
+    traits: t({ sociability: 0.6, chattiness: 0.6, playful: 0.9, coffee: 0.65, bookish: 0.35 }),
+    likes: { play: 1.8, relax: 1.2 },
+    look: { topColors: C(1, 5, 9, 13), tops: ['hoodie', 'tee', 'sweater'], accessories: ['headphones', 'glasses', 'beanie'] },
+    phrases: ['one more playtest', 'feels juicy', 'hitbox!', 'gg', 'more screenshake', 'frame perfect'],
+    keywords: ['game', 'gameplay', 'unity', 'godot', 'unreal', 'level', 'sprite', 'shader', 'physics'],
+  },
+  {
+    id: 'perf',
+    title: 'Performance Engineer',
+    badge: '#e0913a',
+    traits: t({ sociability: 0.35, chattiness: 0.4, diligence: 0.85, coffee: 0.8, bookish: 0.5 }),
+    likes: { read: 1.3, whiteboard: 1.2 },
+    look: { topColors: C(2, 4, 8, 11), tops: ['shirt', 'sweater', 'turtleneck'], accessories: ['glasses', 'none'] },
+    phrases: ['flame graph time', '16 ms budget', 'cache it', 'too many allocs', 'profile first', 'faster!'],
+    keywords: ['perf', 'performance', 'optimi', 'profil', 'speed', 'benchmark', 'latency', 'memory', 'freeze'],
+  },
+  {
     id: 'designer',
     title: 'Designer',
     badge: '#e07a9f',
@@ -173,6 +203,26 @@ export const PROFESSIONS: Profession[] = [
     keywords: ['secur', 'auth', 'vuln', 'pentest', 'crypto'],
   },
   {
+    id: 'debugger',
+    title: 'Bug Hunter',
+    badge: '#c9564a',
+    traits: t({ sociability: 0.45, chattiness: 0.5, diligence: 0.8, coffee: 0.85, bookish: 0.45 }),
+    likes: { read: 1.2 },
+    look: { topColors: C(4, 8, 11, 12), tops: ['hoodie', 'shirt', 'sweater'], accessories: ['glasses', 'roundGlasses', 'none'] },
+    phrases: ['found it!', 'repro please', 'off by one', 'stack trace?', 'not a bug, a feature', 'heisenbug'],
+    keywords: ['debug', 'bug', 'fix', 'crash', 'error', 'diagnos', 'regression', 'broken'],
+  },
+  {
+    id: 'product',
+    title: 'Product Manager',
+    badge: '#4fa3d9',
+    traits: t({ sociability: 0.9, chattiness: 0.85, coffee: 0.7, drives: 0.85, diligence: 0.55 }),
+    likes: { whiteboard: 1.8, relax: 1.1 },
+    look: { topColors: C(2, 7, 10, 11), tops: ['blazer', 'shirt', 'cardigan', 'dress'], accessories: ['badge', 'scarf', 'none'] },
+    phrases: ['user story?', 'what is the goal', 'ship small', 'roadmap!', 'quick sync', 'scope creep'],
+    keywords: ['product', 'requirement', 'roadmap', 'feature', 'prd', 'story', 'priorit', 'feedback'],
+  },
+  {
     id: 'generalist',
     title: 'Generalist',
     badge: '#6b8bb5',
@@ -194,6 +244,12 @@ export function professionFor(agentType: string): Profession {
     }
   }
   return PROFESSION_BY_ID.get('generalist')!;
+}
+
+/** A Claude agent's role: from its agent type, or, for general-purpose helpers, from the task it was given. */
+export function professionForAgent(agentType: string, task?: string): Profession {
+  const byType = professionFor(agentType);
+  return byType.id === 'generalist' && task ? professionFor(task) : byType;
 }
 
 /** The profession's traits nudged by up to ±0.15 per trait, stable for a seed. */

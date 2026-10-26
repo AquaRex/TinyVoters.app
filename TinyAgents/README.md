@@ -24,7 +24,8 @@ Live at **https://tinyvoters.app/tinyagents/**. This folder lives inside the `Ti
 
 ### Connect Claude Code
 
-1. Run [supabase/tinyagents.sql](supabase/tinyagents.sql) once in the Supabase SQL Editor.
+1. Run the **hub** on the computer that runs Claude Code: see [hub/README.md](hub/README.md) (`npm run hub`, or
+   `npm run hub:autostart` to start it with Windows). It also runs the staff's minds.
 2. On the site, tap the status pill, then **Create my office**.
 3. **Add a computer**: paste the setup prompt into Claude Code on each computer, once.
 4. **Add a device**: pair your phone with a 6-letter code.
@@ -33,12 +34,10 @@ Details, privacy and limits: [docs/CLAUDE_INTEGRATION.md](docs/CLAUDE_INTEGRATIO
 
 **Connect** also has some optional extras:
 - **Visitor link**: a read-only `?visit=` link that shows only who's busy or waiting.
-- **Phone alerts**: web push when someone waits on you or finishes a long turn. Needs a one-time setup:
-  VAPID keys, `pg_net` and the `tiny-push` Edge Function.
 - **Away mode**: approve or deny permission requests from any paired device. Off by default, and needs the
   approvals hook on each computer.
 
-The backend also keeps stats, careers, the day replay log and your customized people. The integration
+The hub also keeps stats, careers, the day replay log and your customized people. The integration
 doc covers what's stored, how long it's kept, the setup steps and the approval security model.
 
 Helpers: `npm run install-hooks -- <computer key>` connects a computer from the command line (`--approvals` also
@@ -79,7 +78,9 @@ src/world/     office grid, layout, levels/hq.ts (default level), levels/sandbox
 src/render/    renderer, thin cutaway walls, floor chunks, day/night lighting, characters
 src/agents/    director, needs, personalities, social life, travel (cars, front door, lift, stairs), demo staff
 src/ui/        editor, roster, agent panel
-supabase/      tinyagents.sql: the whole backend (schema tinyagents + tiny_* functions); functions/tiny-push: web push
+hub/           the background app: Claude Code events, the office's data, live updates, the staff's minds (Ollama)
+src/mind/      the staff's minds: thinking, speaking and acting with one shared state (brain.ts), hub client (engine.ts)
+supabase/      remove-tinyagents.sql: removes the former Supabase backend from the wiki's project
 server/        hook installer, away-mode approvals hook (tinyagents-approve.mjs), session simulator
 gallery.html   every asset at 1x/3x; also workPreview, livingPreview, outdoorPreview, tiles, characters pages
 ```

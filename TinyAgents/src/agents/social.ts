@@ -3,6 +3,9 @@ import {
   LUNCH_LINES, MEETING_LINES, REPLIES, SMALL_TALK, pickFrom, smallTalkLine, toolPhrase,
 } from './professions';
 
+/** What someone says when their real work calls them out of a conversation (when no mind writes it). */
+const EXCUSES = ['sorry, gotta run!', 'work calls, later!', 'oops, need to go', 'brb, duty calls', 'gotta jump, sorry'];
+
 export type ConvKind = 'chat' | 'seated' | 'meeting' | 'lunch';
 
 /** Model-written conversations: lines before a speaker may wrap up, and the most lines, per kind. */
@@ -16,7 +19,7 @@ export class Conversation {
   /** AI staff: writes a speaker's next line from its own model (null: use the built-in lines). */
   /** Called once when a conversation ends. */
   static onEnd: ((c: Conversation) => void) | null = null;
-  static writer: ((c: Conversation, speaker: Agent) => Promise<{ say: string; end: boolean; icon?: string } | null> | null) | null = null;
+  static writer: ((c: Conversation, speaker: Agent, excuse: boolean) => Promise<{ say: string; end: boolean; icon?: string } | null> | null) | null = null;
   /** AI staff: members whose own mind can write their lines get the turns (Claude subagents have none). */
   static voiced: ((a: Agent) => boolean) | null = null;
   members: Agent[];
@@ -35,6 +38,8 @@ export class Conversation {
   private writing = false;
   private turns = 0;
   private now = 0;
+  /** members called away (their real work needs them): each says one last line on its turn, then goes */
+  private excusing = new Set<Agent>();
 
   /** Whether a written conversation has gone on long enough for its speakers to start wrapping up. */
   get winding(): boolean {
@@ -63,6 +68,15 @@ export class Conversation {
     this.turns = lines.length;
   }
 
+  /** `a` must go: before the talking starts it just leaves; once it has, it takes the next turn to excuse itself. */
+  excuse(a: Agent): void {
+    if (!this.started) {
+      this.leave(a);
+      return;
+    }
+    this.excusing.add(a);
+  }
+
   arrive(a: Agent): void {
     this.present.add(a);
   }
@@ -70,6 +84,7 @@ export class Conversation {
   leave(a: Agent): void {
     this.members = this.members.filter((m) => m !== a);
     this.present.delete(a);
+    this.excusing.delete(a);
     if (a.conv === this) {
       a.conv = null;
     }
@@ -119,20 +134,29 @@ export class Conversation {
     if (now < this.nextAt || this.writing) {
       return;
     }
-    if (this.lines <= 0) {
+    const leaving = [...this.excusing][0];
+    if (this.lines <= 0 && !leaving) {
       this.end();
       return;
     }
-    const speaker = this.pickSpeaker();
-    const written = Conversation.writer?.(this, speaker);
+    const speaker = leaving ?? this.pickSpeaker();
+    const written = Conversation.writer?.(this, speaker, !!leaving);
     if (!written) {
-      this.speak(speaker, this.lineFor(speaker));
+      this.speak(speaker, leaving ? pickFrom(EXCUSES, this.rand) : this.lineFor(speaker));
+      if (leaving) {
+        this.leave(leaving);
+      }
       return;
     }
     this.writing = true;
     void written.then((r) => {
       this.writing = false;
       if (this.done || !this.members.includes(speaker)) {
+        return;
+      }
+      if (leaving) {
+        this.speak(speaker, r?.say ?? pickFrom(EXCUSES, this.rand), r?.icon);
+        this.leave(leaving);
         return;
       }
       if (!r) {

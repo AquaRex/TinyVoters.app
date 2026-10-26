@@ -1,7 +1,6 @@
 // Tiny Agents service worker: offline app shell. Built assets are content-hashed, so cache-first is safe;
 // the page itself is network-first so a new deploy shows up on the next visit.
 // The site shares its origin (and cache storage) with TinyVoters, so only our own caches are ever deleted.
-// It also shows phone alerts (web push from the tiny-push Edge Function), with the app closed too.
 // On localhost (vite dev) it caches nothing, so dev modules are never served stale.
 // Bumped to drop what earlier workers cached (the page from before a deploy, unhashed files like sounds).
 const CACHE = 'tiny-agents-v2';
@@ -51,20 +50,7 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-self.addEventListener('push', (e) => {
-  const d = e.data ? e.data.json() : {};
-  e.waitUntil(
-    self.registration.showNotification(d.title || 'Tiny Agents', {
-      body: d.body || '',
-      tag: d.tag,
-      renotify: !!d.tag,
-      icon: './icons/icon-192.png',
-      badge: './icons/icon-192.png',
-    }),
-  );
-});
-
-// Push and in-app alerts (src/ui/notify.ts): focus the open tab, and for in-app alerts tell it which agent to select.
+// In-app alerts (src/ui/notify.ts): focus the open tab, and for in-app alerts tell it which agent to select.
 self.addEventListener('notificationclick', (e) => {
   const agent = e.notification.data?.tinySelect;
   e.notification.close();

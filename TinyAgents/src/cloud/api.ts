@@ -1,6 +1,6 @@
 import { AgentInfo } from '../agents/agent';
 import type { Person } from '../agents/people';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
+import { hubUrl } from './config';
 import approveScript from '../../server/tinyagents-approve.mjs?raw';
 
 const TOKEN_KEY = 'tiny-agents.device.v1';
@@ -25,9 +25,9 @@ export class CloudError extends Error {
 }
 
 async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+  const res = await fetch(`${hubUrl()}/rpc/${name}`, {
     method: 'POST',
-    headers: { apikey: SUPABASE_ANON_KEY, 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(args),
   });
   if (!res.ok) {
@@ -210,16 +210,6 @@ export function visitorSnapshot(visitor: string): Promise<AgentInfo[]> {
   return rpc<AgentInfo[]>('tiny_visitor_snapshot', { p_visitor: visitor });
 }
 
-// ---------------------------------------------------------------- web push
-
-export function pushSubscribe(sub: PushSubscriptionJSON): Promise<void> {
-  return rpc<void>('tiny_push_subscribe', { p_token: deviceToken(), p_sub: sub });
-}
-
-export function pushUnsubscribe(endpoint: string): Promise<void> {
-  return rpc<void>('tiny_push_unsubscribe', { p_token: deviceToken(), p_endpoint: endpoint });
-}
-
 // ---------------------------------------------------------------- remote approvals (opt-in "away mode")
 
 export interface ApprovalRequest {
@@ -249,49 +239,69 @@ export function decideApproval(id: string, allow: boolean): Promise<void> {
 export type OfficeStatus = 'unpaired' | 'connecting' | 'online' | 'offline';
 
 /**
- * Polls the office every couple of seconds while the page is visible. Unpaired devices get no Claude
- * agents (demo staff only). A device whose token was revoked is unpaired again. Visitors (?visit=) poll
- * the states-only visitor snapshot instead.
+ * Streams the office from the hub (it sends every change). Unpaired devices get no Claude agents (demo staff
+ * only); pairing or forgetting this device is picked up within a couple of seconds. A device whose token was
+ * revoked is unpaired again. Visitors (?visit=) get the states-only visitor stream instead.
  */
 export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (s: OfficeStatus) => void): () => void {
-  let timer = 0;
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) {
-      return;
-    }
-    if (!visitToken && !deviceToken()) {
-      onStatus('unpaired');
-      onAgents([]);
-    } else if (document.visibilityState === 'visible') {
+  let source: EventSource | null = null;
+  /** the token the stream was opened with; undefined until the first check, or to reopen a closed stream */
+  let streamToken: string | null | undefined;
+  const close = () => {
+    source?.close();
+    source = null;
+  };
+  const open = (token: string) => {
+    streamToken = token;
+    onStatus('connecting');
+    const query = visitToken ? `visit=${encodeURIComponent(visitToken)}` : `token=${encodeURIComponent(token)}`;
+    const stream = new EventSource(`${hubUrl()}/events?${query}`);
+    source = stream;
+    stream.addEventListener('agents', (e) => {
+      onAgents(JSON.parse((e as MessageEvent<string>).data) as AgentInfo[]);
+      onStatus('online');
+    });
+    stream.onerror = async () => {
+      onStatus('offline');
+      if (stream.readyState === EventSource.CLOSED) {
+        close();
+        streamToken = undefined;
+      }
+      if (visitToken) {
+        return;
+      }
       try {
-        onAgents(await (visitToken ? visitorSnapshot(visitToken) : snapshot()));
-        onStatus('online');
+        await snapshot();
       } catch (e) {
-        if (!visitToken && e instanceof CloudError && e.message === 'not paired') {
+        if (e instanceof CloudError && e.message === 'not paired' && deviceToken() === token) {
           saveToken(null);
+          close();
+          streamToken = null;
           onStatus('unpaired');
           onAgents([]);
-        } else {
-          onStatus('offline');
         }
       }
-    }
-    timer = window.setTimeout(tick, 2000);
+    };
   };
-  onStatus(visitToken || deviceToken() ? 'connecting' : 'unpaired');
-  tick();
-  const wake = () => {
-    if (document.visibilityState === 'visible') {
-      clearTimeout(timer);
-      tick();
+  const check = () => {
+    const token = visitToken ?? deviceToken();
+    if (token === streamToken) {
+      return;
+    }
+    close();
+    if (token) {
+      open(token);
+    } else {
+      streamToken = null;
+      onStatus('unpaired');
+      onAgents([]);
     }
   };
-  document.addEventListener('visibilitychange', wake);
+  check();
+  const timer = window.setInterval(check, 2000);
   return () => {
-    stopped = true;
-    clearTimeout(timer);
-    document.removeEventListener('visibilitychange', wake);
+    clearInterval(timer);
+    close();
   };
 }
 
@@ -299,7 +309,7 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
 export function hookCommand(key: string, machine: string, os: 'windows' | 'mac'): string {
   const curl = os === 'windows' ? 'curl.exe' : 'curl';
   const safeMachine = machine.replace(/[^\w .-]/g, '').slice(0, 40) || 'computer';
-  return `${curl} -s -m 10 -X POST "${SUPABASE_URL}/rest/v1/rpc/tiny_ingest" -H "apikey: ${SUPABASE_ANON_KEY}" -H "Content-Type: application/json" -H "x-tiny-key: ${key}" -H "x-tiny-machine: ${safeMachine}" --data-binary @-`;
+  return `${curl} -s -m 10 -X POST "${hubUrl()}/ingest" -H "Content-Type: application/json" -H "x-tiny-key: ${key}" -H "x-tiny-machine: ${safeMachine}" --data-binary @-`;
 }
 
 export const HOOK_EVENTS = [
@@ -332,7 +342,7 @@ export function installPrompt(key: string, machine: string, os: 'windows' | 'mac
   const cmd = hookCommand(key, machine, os);
   return [
     'Please connect this computer to my Tiny Agents office by adding hooks to my USER settings file (~/.claude/settings.json; create it if missing).',
-    `For each of these events: ${HOOK_EVENTS.join(', ')}, append this entry to that event's list (keep every existing hook untouched, and replace any earlier entry whose command contains "tiny_ingest"):`,
+    `For each of these events: ${HOOK_EVENTS.join(', ')}, append this entry to that event's list (keep every existing hook untouched, and replace any earlier entry whose command contains "tiny_ingest" or "/ingest"):`,
     JSON.stringify({ hooks: [{ type: 'command', command: cmd, async: true, timeout: 15 }] }),
     'Then show me the events you added. Do not change anything else.',
   ].join('\n\n');
@@ -348,7 +358,7 @@ export function approvalsPrompt(key: string): string {
     '1. Create the file ~/.claude/tinyagents-approve.mjs with exactly this content:',
     '```js\n' + approveScript.trim() + '\n```',
     '2. In my USER settings file (~/.claude/settings.json), append this entry to the "PermissionRequest" hooks list (keep every existing hook untouched, and replace any earlier entry whose command contains "tinyagents-approve"). Use the absolute path of that file with forward slashes in place of <PATH>:',
-    JSON.stringify({ hooks: [{ type: 'command', command: `node "<PATH>" ${key}`, timeout: 660 }] }),
+    JSON.stringify({ hooks: [{ type: 'command', command: `node "<PATH>" ${key} ${hubUrl()}`, timeout: 660 }] }),
     'Then show me what you changed. Do not change anything else.',
   ].join('\n\n');
 }

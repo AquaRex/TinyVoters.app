@@ -1,18 +1,16 @@
 // Tiny Agents away mode: a Claude Code PermissionRequest hook (Node 18+). Installed as ~/.claude/tinyagents-approve.mjs.
-//   node ~/.claude/tinyagents-approve.mjs <computer key>
+//   node ~/.claude/tinyagents-approve.mjs <computer key> <hub url>
 // With away mode off (the default) it exits at once with no output, so Claude Code shows its normal prompt.
 // With it on, it waits (up to 10 minutes) for a paired device to approve or deny, then prints that decision.
 // Offline, or any error: no output, so the normal prompt appears.
-const SUPABASE_URL = 'https://hchyekrxubzuqrnlckpm.supabase.co';
-const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaHlla3J4dWJ6dXFybmxja3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjI3NDIsImV4cCI6MjA5OTgzODc0Mn0.IIfUjrwSEnrAzPuRrCUblli2fJ7dYJssj7jE-526OxE';
 const key = process.argv[2] ?? '';
+const hub = process.argv[3] ?? '';
 const until = Date.now() + 10 * 60 * 1000;
 
 async function wait(request, event) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/tiny_approval_wait`, {
+  const res = await fetch(`${hub}/rpc/tiny_approval_wait`, {
     method: 'POST',
-    headers: { apikey: ANON_KEY, 'content-type': 'application/json', 'x-tiny-key': key },
+    headers: { 'content-type': 'application/json', 'x-tiny-key': key },
     body: JSON.stringify({ p_request: request, p_event: event }),
     signal: AbortSignal.timeout(8000),
   });

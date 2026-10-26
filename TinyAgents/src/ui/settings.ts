@@ -13,22 +13,13 @@ type AudioVolume = 'master' | 'volume' | 'officeVol' | 'chimesVol' | 'weatherVol
 const SWITCH_OF: Record<Exclude<AudioVolume, 'master'>, AudioSwitch> = { volume: 'music', officeVol: 'office', chimesVol: 'chimes', weatherVol: 'weather', uiVol: 'ui' };
 
 function aiText(): string {
-  const dl = engine.download;
   switch (engine.state) {
-    case 'unsupported':
-      return `Unavailable: ${engine.note}.`;
-    case 'error':
-      return `Couldn't start: ${engine.note}`;
     case 'ready':
-      return `Running: ${engine.cached ? 'loaded from the cache' : 'downloaded'} in ${(engine.loadMs / 1000).toFixed(1)} s.`;
+      return 'Running on your hub.';
     case 'loading':
-      if (dl) {
-        const total = engine.progress > 0 ? Math.round(dl.mb / engine.progress) : 0;
-        return `Downloading ${dl.mb} of ~${total} MB · ${Math.floor(engine.progress * 100)}% · ${dl.speed.toFixed(1)} MB/s · ${Math.ceil(dl.eta)} s left`;
-      }
-      return engine.note;
+      return 'Starting…';
     default:
-      return '';
+      return engine.note;
   }
 }
 
@@ -45,7 +36,6 @@ export function initSettings(): void {
   const alertNote = $('.st-alert-note');
   const aiBtn = $<HTMLButtonElement>('[data-set="ai"]');
   const aiNote = $('.st-ai-note');
-  const aiBar = $<HTMLProgressElement>('.st-ai-bar');
 
   function render(): void {
     for (const [btn, value] of [
@@ -56,12 +46,9 @@ export function initSettings(): void {
       btn.classList.toggle('on', value);
       btn.textContent = value ? 'On' : 'Off';
     }
-    const aiOn = engine.state === 'loading' || engine.state === 'ready';
+    const aiOn = aiWanted();
     aiBtn.classList.toggle('on', aiOn);
     aiBtn.textContent = aiOn ? 'On' : 'Off';
-    aiBtn.disabled = engine.state === 'unsupported';
-    aiBar.hidden = engine.state !== 'loading';
-    aiBar.value = engine.progress;
     aiNote.textContent = aiText();
     for (const b of speeds) {
       b.classList.toggle('on', Number(b.dataset.speed) === ux.timeSpeed);
@@ -104,7 +91,10 @@ export function initSettings(): void {
     }
     await sendAlert(a ? `${a.name} needs you` : 'Tiny Agents', a ? 'Bash · npm test (test alert)' : 'Test alert', a?.id ?? '', true);
   });
-  aiBtn.addEventListener('click', () => setAi(!(engine.state === 'loading' || engine.state === 'ready')));
+  aiBtn.addEventListener('click', () => {
+    setAi(!aiWanted());
+    render();
+  });
   engine.onChange(render);
   if (aiWanted()) {
     setAi(true);

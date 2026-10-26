@@ -142,7 +142,7 @@ function render(st: StatsState): void {
   let content: string;
   if (st.error) {
     content = `<p class="tt-error">Couldn't load the office stats: ${esc(st.error)}</p>
-      <p class="tt-muted">If this says the function doesn't exist, run the latest <code>supabase/tinyagents.sql</code> in the Supabase SQL Editor.</p>`;
+      <p class="tt-muted">If this says the function doesn't exist, update the Tiny Agents hub on your computer.</p>`;
   } else if (!st.stats) {
     content = '<p class="tt-muted">Fetching the latest edition…</p>';
   } else {

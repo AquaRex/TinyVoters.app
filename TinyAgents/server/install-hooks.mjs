@@ -1,5 +1,5 @@
 // Connects this computer's Claude Code to your Tiny Agents office (or, with --remove, disconnects it).
-//   npm run install-hooks -- <computer key> [--name "My PC"] [--approvals]
+//   npm run install-hooks -- <computer key> [--name "My PC"] [--hub http://127.0.0.1:7777] [--approvals]
 //   npm run install-hooks -- --remove
 // --approvals also installs the away-mode approvals hook (~/.claude/tinyagents-approve.mjs, a PermissionRequest
 // hook that lets a paired device approve or deny while away mode is on; see docs/CLAUDE_INTEGRATION.md).
@@ -10,9 +10,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SUPABASE_URL = 'https://hchyekrxubzuqrnlckpm.supabase.co';
-const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaHlla3J4dWJ6dXFybmxja3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjI3NDIsImV4cCI6MjA5OTgzODc0Mn0.IIfUjrwSEnrAzPuRrCUblli2fJ7dYJssj7jE-526OxE';
 const EVENTS = [
   'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
   'PermissionRequest', 'PermissionDenied', 'Notification', 'Stop', 'StopFailure', 'SubagentStart',
@@ -23,19 +20,21 @@ const args = process.argv.slice(2);
 const remove = args.includes('--remove');
 const approvals = args.includes('--approvals');
 const nameAt = args.indexOf('--name');
+const hubAt = args.indexOf('--hub');
 const machine = (nameAt >= 0 ? args[nameAt + 1] : os.hostname()).replace(/[^\w .-]/g, '').slice(0, 40) || 'computer';
-const key = args.find((a, i) => !a.startsWith('--') && (nameAt < 0 || i !== nameAt + 1));
+const hub = (hubAt >= 0 ? args[hubAt + 1] : 'http://127.0.0.1:7777').replace(/\/+$/, '');
+const key = args.find((a, i) => !a.startsWith('--') && (nameAt < 0 || i !== nameAt + 1) && (hubAt < 0 || i !== hubAt + 1));
 if (!remove && !/^[0-9a-f]{64}$/.test(key ?? '')) {
-  console.error('Usage: npm run install-hooks -- <computer key> [--name "My PC"] [--approvals]   (or --remove)');
+  console.error('Usage: npm run install-hooks -- <computer key> [--name "My PC"] [--hub http://127.0.0.1:7777] [--approvals]   (or --remove)');
   process.exit(1);
 }
 
 const curl = process.platform === 'win32' ? 'curl.exe' : 'curl';
-const command = `${curl} -s -m 10 -X POST "${SUPABASE_URL}/rest/v1/rpc/tiny_ingest" -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" -H "x-tiny-key: ${key}" -H "x-tiny-machine: ${machine}" --data-binary @-`;
-// ours: this cloud hook, the approvals hook, or the earlier local-bridge hook (…/server/hook.mjs)
+const command = `${curl} -s -m 10 -X POST "${hub}/ingest" -H "Content-Type: application/json" -H "x-tiny-key: ${key}" -H "x-tiny-machine: ${machine}" --data-binary @-`;
+// ours: this hub hook, the earlier Supabase hook (tiny_ingest), the approvals hook, or the earlier local-bridge hook (…/server/hook.mjs)
 const isOurs = (h) =>
   typeof h.command === 'string' &&
-  (h.command.includes('tiny_ingest') || h.command.includes('tinyagents-approve') || /TinyAgents\/server\/hook\.mjs"?$/.test(h.command));
+  (h.command.includes('/ingest"') || h.command.includes('tiny_ingest') || h.command.includes('tinyagents-approve') || /TinyAgents\/server\/hook\.mjs"?$/.test(h.command));
 const approvePath = path.join(os.homedir(), '.claude', 'tinyagents-approve.mjs');
 
 const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
@@ -64,7 +63,7 @@ if (approvals && !remove) {
   fs.mkdirSync(path.dirname(approvePath), { recursive: true });
   fs.copyFileSync(fileURLToPath(new URL('./tinyagents-approve.mjs', import.meta.url)), approvePath);
   // waits up to 10 minutes for a decision, so the hook's timeout must be longer than that
-  const approveCommand = `node "${approvePath.replace(/\\/g, '/')}" ${key}`;
+  const approveCommand = `node "${approvePath.replace(/\\/g, '/')}" ${key} ${hub}`;
   (settings.hooks.PermissionRequest ??= []).push({ hooks: [{ type: 'command', command: approveCommand, timeout: 660 }] });
 } else if (fs.existsSync(approvePath)) {
   fs.rmSync(approvePath);
