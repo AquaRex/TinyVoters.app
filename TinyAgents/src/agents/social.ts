@@ -15,6 +15,11 @@ const WRITTEN_TURNS: Record<ConvKind, [min: number, max: number]> = { chat: [3, 
  * A conversation between two or more people: once everyone is in place they take turns talking (talk / sitTalk
  * poses with short bubbles), then part ways. Meetings wait for everyone to sit down first.
  */
+/** Seconds a bubble stays up: long enough to read the line. */
+export function readTime(text: string): number {
+  return 1.6 + Math.min(3.4, text.length * 0.045);
+}
+
 export class Conversation {
   /** AI staff: writes a speaker's next line from its own model (null: use the built-in lines). */
   /** Called once when a conversation ends. */
@@ -174,7 +179,7 @@ export class Conversation {
   }
 
   private speak(speaker: Agent, text: string, icon?: string): void {
-    const seconds = 1.8 + Math.min(1.4, text.length * 0.06);
+    const seconds = readTime(text);
     speaker.say(text, seconds, icon);
     this.last = speaker;
     this.log.push({ who: speaker, text });

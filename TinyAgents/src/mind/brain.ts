@@ -4,7 +4,7 @@ import type { Director } from '../agents/director';
 import { NEED_IDS, NeedId, urgency } from '../agents/needs';
 import { FRIEND, affinity, colleagues } from '../agents/relationships';
 import { roomAt, roomName } from '../agents/rooms';
-import { Conversation } from '../agents/social';
+import { Conversation, readTime } from '../agents/social';
 import { deviceToken, messages } from '../cloud/api';
 import { Priority, REACTION, REPLY, ROUTINE, engine, mindStats } from './engine';
 
@@ -96,8 +96,8 @@ function ask(a: Agent, m: Mind, priority: Priority, kind: string, user: string, 
 }
 
 /** Says a model-written line, marked as such, and remembers it for the panel. */
-function speak(a: Agent, m: Mind, text: string, ms: number, seconds = 2.4): void {
-  a.say(text, seconds, AI_MARK);
+function speak(a: Agent, m: Mind, text: string, ms: number): void {
+  a.say(text, readTime(text), AI_MARK);
   m.lastLine = { text, at: performance.now(), ms };
 }
 
@@ -232,11 +232,11 @@ function traits(a: Agent): string {
 }
 
 function persona(a: Agent): string {
-  return `You are ${a.name}, ${a.npc ? 'the' : 'a'} ${a.role.title} at a small cozy office. You are ${traits(a)}. Talk short, cheeky and friendly about what's going on and your work, in your own words, never quoting it. Answer only with JSON.`;
+  return `You are ${a.name}, ${a.npc ? 'the' : 'a'} ${a.role.title} at a small cozy office. You are ${traits(a)}. Talk like yourself: casual and natural, with a sense of humour, about what's going on and your work. Never quote your work, put it in your own words. Answer only with JSON.`;
 }
 
 function innerVoice(a: Agent): string {
-  return `You are ${a.name}, ${a.npc ? 'the' : 'a'} ${a.role.title} at a small cozy office. You are ${traits(a)}. These are your private thoughts, never said out loud: honest, short, first person, in your own words. Answer only with JSON.`;
+  return `You are ${a.name}, ${a.npc ? 'the' : 'a'} ${a.role.title} at a small cozy office. You are ${traits(a)}. These are your private thoughts, never said out loud: honest, in your own voice, the way people really think. Answer only with JSON.`;
 }
 
 /** The gist of a Claude agent's real session: what was last asked and answered (fetched when a turn ends). */
@@ -345,10 +345,10 @@ function think(a: Agent, m: Mind, priority: Priority): void {
   const now = performance.now();
   m.nextThought = now + (MUSE_EVERY[0] + Math.random() * (MUSE_EVERY[1] - MUSE_EVERY[0])) * 1000;
   const plans = planLabels(a);
-  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 110 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 170 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
   const user = [context(a), ...preoccupations(a), 'What are you thinking right now?'].join('\n');
-  void engine.ask(a, priority, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 44, () => a.gone).then((r) => {
-    const text = words(r?.json.think, 16);
+  void engine.ask(a, priority, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 72, () => a.gone).then((r) => {
+    const text = words(r?.json.think, 28);
     if (text.split(' ').length >= 3 && !offClock(text, user)) {
       m.thought = { text, at: performance.now(), ms: performance.now() - now };
       setPlan(a, m, r?.json.plan);
@@ -535,12 +535,16 @@ export function prefetch(a: Agent, options: Choice[]): void {
   const plan: Plan = { options, asked: performance.now(), waitFrom: 0, ms: 0 };
   plans.set(a, plan);
   const menu = options.map((o, i) => `${i + 1} ${o.label}`).join(', ');
-  const schema = { type: 'object', properties: { choice: { type: 'string', enum: options.map((_, i) => String(i + 1)) }, say: { type: 'string', maxLength: 48 } }, required: ['choice', 'say'] };
+  // a plan decides the action when an option fulfils it: the model only writes what they say as they go
+  const intent = planOf(m);
+  const planned = intent ? options.findIndex((o) => fulfils(o.label, intent)) : -1;
+  const allowed = planned >= 0 ? [String(planned + 1)] : options.map((_, i) => String(i + 1));
+  const schema = { type: 'object', properties: { choice: { type: 'string', enum: allowed }, say: { type: 'string', maxLength: 90 } }, required: ['choice', 'say'] };
   const user = `${context(a)}\nOptions: ${menu}.\nWhich number do you pick, and what do you say?`;
-  void ask(a, m, ROUTINE, 'decision', user, schema, 28, () => a.gone || a.leaving || a.info.busy, 0.8).then((r) => {
+  void ask(a, m, ROUTINE, 'decision', user, schema, 48, () => a.gone || a.leaving || a.info.busy, 0.8).then((r) => {
     plan.ms = performance.now() - plan.asked;
     const index = Number(r?.choice) - 1;
-    plan.answer = r && index >= 0 && index < options.length ? { index, say: line(r.say, 8, options.map((o) => o.label), user) } : null;
+    plan.answer = r && index >= 0 && index < options.length ? { index, say: line(r.say, 14, options.map((o) => o.label), user) } : null;
   });
 }
 
@@ -634,14 +638,14 @@ function react(a: Agent, event: string, question: string, apply: (say: string, m
   reactedAt.set(a, now);
   remember(a, event);
   const plans = planLabels(a);
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 60 }, ...planProp(plans) }, required: ['say', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 110 }, ...planProp(plans) }, required: ['say', ...planKey(plans)] };
   const user = `${context(a, focus)}\n${event}\n${question}`;
-  void ask(a, m, REACTION, 'reaction', user, schema, 32, () => a.gone || a.leaving, 0.6).then((r) => {
+  void ask(a, m, REACTION, 'reaction', user, schema, 56, () => a.gone || a.leaving, 0.6).then((r) => {
     if (!r || a.gone || a.hidden) {
       return;
     }
     setPlan(a, m, r.plan);
-    const say = line(r.say, 10, echo, user);
+    const say = line(r.say, 18, echo, user);
     const ms = performance.now() - now;
     console.info(`[mind] ${a.name} reacts to "${event}" -> "${say || `(silent; model wrote ${JSON.stringify(r.say)})`}" ${Math.round(ms)} ms`);
     if (say) {
@@ -775,11 +779,11 @@ Conversation.writer = (conv, speaker, excuse) => {
     ? `Talking for ${secs} s:\n${recent.map((l) => `${l.who.name}: "${l.text}"`).join('\n')}${excuse ? `\n${CALLED_AWAY}` : conv.winding ? '\nYou have talked a while, time to wrap up and get back to work.' : ''}\nWhat do you say to ${recent[recent.length - 1].who === speaker ? other?.name ?? 'them' : recent[recent.length - 1].who.name}?`
     : `You start ${kind} with ${other?.name ?? 'your coworker'} about ${other ? topicOf(other) : 'the day'}. What do you say?`;
   const plans = planLabels(speaker);
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 70 }, end: { type: 'boolean' }, ...planProp(plans) }, required: ['say', 'end', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 120 }, end: { type: 'boolean' }, ...planProp(plans) }, required: ['say', 'end', ...planKey(plans)] };
   const user = `${context(speaker, other)}\n${so}`;
   const t = performance.now();
-  return ask(speaker, m, REPLY, 'reply', user, schema, 32, () => conv.done, 0.6).then((r) => {
-    const say = line(r?.say, 12, recent.map((l) => l.text), user);
+  return ask(speaker, m, REPLY, 'reply', user, schema, 60, () => conv.done, 0.6).then((r) => {
+    const say = line(r?.say, 20, recent.map((l) => l.text), user);
     if (!r || !say) {
       return null;
     }

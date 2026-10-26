@@ -1,9 +1,9 @@
 // The NPC minds: the fine-tuned model served by the hub's own Ollama (installed separately, see hub/README.md).
 // Ollama runs on its own port so it never clashes with another Ollama on this computer. The model loads on the
 // first request and unloads after a few idle minutes.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
-export const MODEL = 'tinyagent-v7b';
+export const MODEL = 'tinyagent-v8';
 const OLLAMA = 'http://127.0.0.1:11435';
 const OLLAMA_ENV = {
   OLLAMA_HOST: '127.0.0.1:11435',
@@ -54,8 +54,16 @@ export class Mind {
     }
   }
 
+  /** Ollama with the model runner it started: on Windows, killing Ollama alone leaves the runner holding the model's RAM. */
   stop() {
-    this.server?.kill();
+    if (!this.server?.pid || this.server.exitCode !== null) {
+      return;
+    }
+    if (process.platform === 'win32') {
+      execFileSync('taskkill', ['/pid', String(this.server.pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      this.server.kill();
+    }
   }
 
   /** The training prompt layout exactly (ChatML, no thinking block): anything else makes the model drift. */
