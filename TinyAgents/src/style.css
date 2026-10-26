@@ -1,4 +1,6 @@
 :root {
+  /* codes people read and type: a plain monospace where 5/S, 0/O and 1/I look different */
+  --code-font: ui-monospace, 'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'Roboto Mono', monospace;
   --void: #2b2d39;
   --panel: #2c2e3b;
   --panel-2: #383b4b;
@@ -1090,7 +1092,9 @@ button.pill:hover {
 
 .cn-code .cn-hub {
   flex: 1 1 100%;
-  font-size: 18px;
+  font-family: var(--code-font);
+  font-weight: 600;
+  font-size: 20px;
   letter-spacing: 2px;
   text-transform: uppercase;
   text-align: center;
@@ -1098,6 +1102,8 @@ button.pill:hover {
 
 
 .cn-codebig {
+  font-family: var(--code-font);
+  font-weight: 700;
   font-size: 34px;
   letter-spacing: 8px;
   text-align: center;

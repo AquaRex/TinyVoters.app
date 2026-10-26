@@ -11,6 +11,8 @@ const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }];
 const PIECE = 60000;
 const HEARTBEAT_MS = 25000;
+/** Nothing from Realtime for this long (it answers every heartbeat): the connection is dead, so start a new one. */
+const SILENT_MS = 70000;
 /** A relayed device that hasn't said hello for this long no longer gets updates through the channel. */
 const RELAY_VIEWER_FOR = 70000;
 
@@ -54,12 +56,27 @@ export class Link {
     const ws = new WebSocket(`wss://${REF}.supabase.co/realtime/v1/websocket?apikey=${ANON_KEY}&vsn=1.0.0`);
     this.ws = ws;
     let beat = 0;
+    let heard = Date.now();
     ws.onopen = () => {
       ws.send(JSON.stringify({ topic: this.topic, event: 'phx_join', payload: { config: { broadcast: { self: false }, private: false } }, ref: String(++this.ref) }));
-      beat = setInterval(() => ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this.ref) })), HEARTBEAT_MS);
+      beat = setInterval(() => {
+        if (Date.now() - heard > SILENT_MS) {
+          this.log('Realtime went quiet: reconnecting');
+          ws.close();
+          return;
+        }
+        ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this.ref) }));
+      }, HEARTBEAT_MS);
     };
     ws.onmessage = (m) => {
+      heard = Date.now();
       const msg = JSON.parse(m.data);
+      // Realtime can drop the channel while the connection stays up: join again on a fresh connection
+      if (msg.topic === this.topic && (msg.event === 'phx_error' || msg.event === 'phx_close' || (msg.event === 'system' && msg.payload?.status === 'error') || (msg.event === 'phx_reply' && msg.payload?.status === 'error'))) {
+        this.log(`Realtime channel ${msg.event}${msg.payload?.message ? ` (${msg.payload.message})` : ''}: reconnecting`);
+        ws.close();
+        return;
+      }
       if (msg.event === 'broadcast' && msg.topic === this.topic) {
         void this.onBroadcast(msg.payload.event, msg.payload.payload);
       }

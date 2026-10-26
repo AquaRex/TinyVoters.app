@@ -8,6 +8,8 @@ const REF = 'hchyekrxubzuqrnlckpm';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaHlla3J4dWJ6dXFybmxja3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjI3NDIsImV4cCI6MjA5OTgzODc0Mn0.IIfUjrwSEnrAzPuRrCUblli2fJ7dYJssj7jE-526OxE';
 const ICE: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 const HEARTBEAT_MS = 25000;
+/** Nothing from Realtime for this long (it answers every heartbeat): the connection is dead, so start a new one. */
+const REALTIME_SILENT_MS = 70000;
 /** While relayed, the page says hello this often so the hub keeps sending it updates. */
 const HELLO_MS = 30000;
 /** How long a direct connection gets to open before the page settles for the relay, and when it tries again. */
@@ -119,15 +121,28 @@ export class Link {
     const ws = new WebSocket(`wss://${REF}.supabase.co/realtime/v1/websocket?apikey=${ANON_KEY}&vsn=1.0.0`);
     this.ws = ws;
     let beat = 0;
+    let heard = performance.now();
     ws.onopen = () => {
       ws.send(JSON.stringify({ topic: this.topic, event: 'phx_join', payload: { config: { broadcast: { self: false }, private: false } }, ref: String(++this.ref) }));
-      beat = window.setInterval(() => ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this.ref) })), HEARTBEAT_MS);
+      beat = window.setInterval(() => {
+        if (performance.now() - heard > REALTIME_SILENT_MS) {
+          ws.close();
+          return;
+        }
+        ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this.ref) }));
+      }, HEARTBEAT_MS);
       this.broadcast('hello', { from: this.me });
       this.markOpen();
       void this.tryDirect();
     };
     ws.onmessage = (m) => {
+      heard = performance.now();
       const msg = JSON.parse(m.data as string);
+      // Realtime can drop the channel while the connection stays up: join again on a fresh connection
+      if (msg.topic === this.topic && (msg.event === 'phx_error' || msg.event === 'phx_close' || (msg.event === 'system' && msg.payload?.status === 'error') || (msg.event === 'phx_reply' && msg.payload?.status === 'error'))) {
+        ws.close();
+        return;
+      }
       if (msg.event === 'broadcast' && msg.topic === this.topic) {
         void this.onBroadcast(msg.payload.event, msg.payload.payload);
       }
