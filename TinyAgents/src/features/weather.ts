@@ -191,80 +191,89 @@ interface SkyLook {
   sky: string[];
   /** cloud tones: shaded underside, body, sunlit top */
   cloud: [string, string, string];
-  /** how much of the sky is cloud, 0..1 */
+  /** chance that a sky cell holds a cloud, 0..1 */
   cover: number;
 }
 
 const SKY: Record<Weather, SkyLook> = {
-  clear: { sky: ['#6fa9d6', '#86b9df', '#9fc9e7', '#b9d9ef'], cloud: ['#c9d8e8', '#e7eef6', '#fbfdff'], cover: 0.36 },
-  rain: { sky: ['#5d6b7a', '#677685', '#738291', '#808e9c'], cloud: ['#56626f', '#8b97a3', '#a9b3bd'], cover: 0.7 },
-  snow: { sky: ['#a9b6c4', '#b7c3cf', '#c6d0da', '#d5dde5'], cloud: ['#c4ccd6', '#e1e6ec', '#f6f8fa'], cover: 0.55 },
+  clear: { sky: ['#6fa9d6', '#86b9df', '#9fc9e7', '#b9d9ef'], cloud: ['#c9d8e8', '#e7eef6', '#fbfdff'], cover: 0.45 },
+  rain: { sky: ['#5d6b7a', '#677685', '#738291', '#808e9c'], cloud: ['#56626f', '#8b97a3', '#a9b3bd'], cover: 0.95 },
+  snow: { sky: ['#a9b6c4', '#b7c3cf', '#c6d0da', '#d5dde5'], cloud: ['#c4ccd6', '#e1e6ec', '#f6f8fa'], cover: 0.75 },
 };
-const SKY_W = 384;
+const SKY_W = 64;
 const SKY_H = 192;
 /** Reflected sky drift, world px per second. */
 const SKY_DRIFT = 4;
+/** The sky is a grid of cells, each holding at most one cloud, picked and placed by hashing the cell. */
+const SKY_CELL_W = 150;
+const SKY_CELL_H = 80;
+const CLOUD_SHAPES = 12;
+const CLOUD_MAX_W = 140;
 const skies = new Map<Weather, HTMLCanvasElement>();
+const cloudSets = new Map<Weather, HTMLCanvasElement[]>();
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
-/** Value noise that wraps every SKY_W x SKY_H px (lattice `cell` px), so the sky tiles without seams. */
-function wrapNoise(x: number, y: number, cell: number, seed: number): number {
-  const gw = SKY_W / cell;
-  const gh = SKY_H / cell;
-  const fx = x / cell;
-  const fy = y / cell;
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const sx = (fx - x0) ** 2 * (3 - 2 * (fx - x0));
-  const sy = (fy - y0) ** 2 * (3 - 2 * (fy - y0));
-  const v = (i: number, j: number) => hash2(((i % gw) + gw) % gw, ((j % gh) + gh) % gh, seed);
-  const top = v(x0, y0) + (v(x0 + 1, y0) - v(x0, y0)) * sx;
-  const bottom = v(x0, y0 + 1) + (v(x0 + 1, y0 + 1) - v(x0, y0 + 1)) * sx;
-  return top + (bottom - top) * sy;
-}
-
-/** Cloud density at (x, y): a few octaves, stretched wide like fair-weather cumulus. */
-function cloudAt(x: number, y: number): number {
-  const n = wrapNoise(x, y * 1.5, 96, 711) * 0.55 + wrapNoise(x, y * 1.5, 48, 712) * 0.3 + wrapNoise(x, y * 1.5, 24, 713) * 0.15;
-  return Math.min(1, Math.max(0, (n - 0.5) * 2.6 + 0.5));
-}
-
-/**
- * A seamless pixel-art sky for water reflections: a dithered gradient, and puffy clouds from tiling noise with a
- * sunlit top edge, a soft body and a shaded underside, their outlines broken up by ordered dither.
- */
+/** The bare sky: a dithered gradient that repeats every SKY_H px down the screen. */
 function skyTile(w: Weather): HTMLCanvasElement {
   let c = skies.get(w);
   if (c) {
     return c;
   }
-  const s = SKY[w];
+  const skyRgb = SKY[w].sky.map(rgb);
   const [canvas, ctx] = makeCanvas(SKY_W, SKY_H);
   const img = ctx.createImageData(SKY_W, SKY_H);
-  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const skyRgb = s.sky.map(rgb);
-  const cloudRgb = s.cloud.map(rgb);
-  const edge = 1 - s.cover;
   for (let y = 0; y < SKY_H; y++) {
     for (let x = 0; x < SKY_W; x++) {
-      const d = cloudAt(x, y);
       const dither = bayer(x, y) - 0.5;
-      let col: number[];
-      if (d + dither * 0.05 > edge) {
-        const lit = cloudAt(x, y - 4) < d - 0.04;
-        const shaded = cloudAt(x, y + 4) < d - 0.04;
-        const body = d - edge;
-        const tone = shaded || body + dither * 0.06 < 0.04 ? 0 : lit ? 2 : 1;
-        col = cloudRgb[tone];
-      } else {
-        const t = Math.min(0.999, Math.max(0, (Math.sin((y / SKY_H) * Math.PI * 2) * 0.5 + 0.5) * 0.85 + dither * 0.25));
-        col = skyRgb[Math.floor(t * skyRgb.length)];
-      }
+      const t = Math.min(0.999, Math.max(0, (Math.sin((y / SKY_H) * Math.PI * 2) * 0.5 + 0.5) * 0.85 + dither * 0.25));
+      const col = skyRgb[Math.floor(t * skyRgb.length)];
       img.data.set([col[0], col[1], col[2], 255], (y * SKY_W + x) * 4);
     }
   }
   ctx.putImageData(img, 0, 0);
   skies.set(w, canvas);
   return canvas;
+}
+
+/**
+ * One puffy cloud: noise carved into an ellipse with a flatter base, so the whole cloud always fits its sprite.
+ * Sunlit top edge, soft body, shaded underside, the outline broken up by ordered dither.
+ */
+function cloudSprite(look: SkyLook, k: number): HTMLCanvasElement {
+  const w = 56 + Math.floor(hash2(k, 1, 721) * (CLOUD_MAX_W - 56));
+  const h = 20 + Math.floor(hash2(k, 2, 721) * 20);
+  const tones = look.cloud.map(rgb);
+  const density = (x: number, y: number) => {
+    const nx = ((x + 0.5) / w) * 2 - 1;
+    const ny = ((y + 0.5) / h) * 2 - 1;
+    const r = Math.hypot(nx, ny > 0 ? ny ** 3 : ny);
+    return 1 - r - (1 - fbm2(x, y * 1.6, 14, 730 + k * 7)) * 0.6;
+  };
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && density(x, y) > 0.02;
+  const [canvas, ctx] = makeCanvas(w, h);
+  const img = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!inside(x, y)) {
+        continue;
+      }
+      const ny = (y / h) * 2 - 1 + (bayer(x, y) - 0.5) * 0.3;
+      const tone = !inside(x, y + 3) || ny > 0.45 ? 0 : !inside(x, y - 3) || ny < -0.5 ? 2 : 1;
+      const col = tones[tone];
+      img.data.set([col[0], col[1], col[2], 255], (y * w + x) * 4);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function cloudShapes(w: Weather): HTMLCanvasElement[] {
+  let set = cloudSets.get(w);
+  if (!set) {
+    set = Array.from({ length: CLOUD_SHAPES }, (_, k) => cloudSprite(SKY[w], k));
+    cloudSets.set(w, set);
+  }
+  return set;
 }
 
 let scratch: [HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
@@ -285,10 +294,23 @@ function reflectSky(ctx: CanvasRenderingContext2D, water: HTMLCanvasElement, vie
   b.globalCompositeOperation = 'source-over';
   b.clearRect(0, 0, buf.width, buf.height);
   const sky = skyTile(w);
-  const ox = -Math.floor((time * SKY_DRIFT) % SKY_W);
   for (let y = 0; y < vh; y += SKY_H) {
-    for (let x = ox; x < vw; x += SKY_W) {
+    for (let x = 0; x < vw; x += SKY_W) {
       b.drawImage(sky, x, y);
+    }
+  }
+  const drift = Math.floor(time * SKY_DRIFT);
+  const shapes = cloudShapes(w);
+  const cover = SKY[w].cover;
+  for (let j = -1; j * SKY_CELL_H < vh; j++) {
+    for (let i = Math.floor((drift - CLOUD_MAX_W) / SKY_CELL_W); i * SKY_CELL_W < drift + vw; i++) {
+      if (hash2(i, j, 741) >= cover) {
+        continue;
+      }
+      const cloud = shapes[Math.floor(hash2(i, j, 742) * shapes.length)];
+      const x = i * SKY_CELL_W + Math.floor(hash2(i, j, 743) * (SKY_CELL_W - cloud.width * 0.4)) - drift;
+      const y = j * SKY_CELL_H + Math.floor(hash2(i, j, 744) * (SKY_CELL_H - cloud.height * 0.4));
+      b.drawImage(cloud, x, y);
     }
   }
   b.globalCompositeOperation = 'destination-in';

@@ -46,9 +46,3 @@ everything goes straight between them. Where a network blocks direct connections
 instead (Realtime's free plan: 2 million messages a month; the hub only sends while a device elsewhere is watching).
 
 The code is the key: anyone with it sees the office. **New code** under Connect disconnects every other device.
-
-## Game mode
-
-On NVIDIA cards the hub checks the GPU every 3 s while it isn't answering. When something else keeps it over 70%
-busy for about 12 s (a game), the minds pause and the model unloads; staff use their built-in lines. They resume
-after about 30 s under 35%.

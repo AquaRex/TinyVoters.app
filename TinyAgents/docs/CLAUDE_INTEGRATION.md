@@ -72,8 +72,6 @@ which a thought or a conversation can set and which the behaviour system then fa
 every minute or so and soon after something happens to them. A worker whose real Claude session needs them in the
 middle of a conversation finishes the turn, excuses themselves, then goes.
 
-On NVIDIA cards the hub pauses the minds while a game keeps the GPU busy (see hub/README.md → Game mode).
-
 ## Away mode: approve from the office (opt-in)
 
 Away mode is off by default. When it's on, a permission request on a computer with the approvals hook waits for

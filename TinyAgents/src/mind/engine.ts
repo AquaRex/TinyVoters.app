@@ -27,9 +27,9 @@ interface Job {
   queued: number;
 }
 
-export type EngineState = 'off' | 'loading' | 'paused' | 'ready' | 'error';
+export type EngineState = 'off' | 'loading' | 'ready' | 'error';
 
-const HUB_STATES: Record<string, EngineState> = { ready: 'ready', starting: 'loading', paused: 'paused', error: 'error' };
+const HUB_STATES: Record<string, EngineState> = { ready: 'ready', starting: 'loading', error: 'error' };
 
 /** Latencies per request kind (queue wait included), for the dev readout. */
 export const mindStats = new Map<string, number[]>();

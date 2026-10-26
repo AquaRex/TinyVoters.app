@@ -240,6 +240,9 @@ function selectAgent(a: Agent): void {
     showFloor(floor);
   }
   renderer.selected = a;
+  if (panel.following) {
+    panel.following = a;
+  }
   panel.open(a);
   renderer.camera.x = a.x;
   renderer.camera.y = a.y - 24 - lifted(floor ?? shown());
@@ -540,9 +543,9 @@ function lifted(f: Floor): number {
   return f.level * STOREY_H;
 }
 
-/** A followed person who takes the lift or the stairs takes the view along to their new floor. */
+/** A followed person (or the one whose window is open) who takes the lift or the stairs takes the view along to their new floor. */
 function followSelected(): void {
-  const a = panel.following;
+  const a = panel.following ?? panel.agent;
   const at = a && !a.gone ? floorOf(a) : undefined;
   if (a && at && at !== shown() && !seenFrom(shown(), a) && !app.override && !editor.active) {
     showFloor(at);
