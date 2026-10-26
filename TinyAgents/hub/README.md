@@ -8,7 +8,7 @@ One background app on the computer that runs Claude Code. It:
 - pushes live updates to every open office page,
 - runs the NPC minds: the fine-tuned model in its own Ollama instance on port 11435.
 
-The office page talks to it at `http://127.0.0.1:7777` on this computer, and at `https://<home IP>:4888` from anywhere else (see below).
+The office page talks to it at `http://127.0.0.1:7777` on this computer, and through the office code from anywhere else (see below).
 
 ## Setup
 
@@ -16,7 +16,8 @@ The office page talks to it at `http://127.0.0.1:7777` on this computer, and at 
 2. Model: register the converted model with Ollama once (see below).
 3. `npm run hub` (in this folder's project root) to run it in a terminal, or `npm run hub:autostart` to start it hidden
    whenever you sign in to Windows (`-- --remove` undoes that; output goes to `~/.tinyagents/hub.log`).
-4. Open the office, Connect → **Create my office** (the first device), then **Add a computer** to install the hooks.
+4. Connect this computer's Claude Code: `npm run install-hooks -- <computer key>` (the key is `ingestKey` in
+   `~/.tinyagents/office.json`). Open the office here; it connects on its own.
 
 ## Model
 
@@ -37,20 +38,14 @@ llama.cpp's prompt cache is switched off (`LLAMA_ARG_CACHE_RAM=0`): left on, it 
 
 ## Reaching the hub from anywhere
 
-Other devices reach the hub at `https://<this home's IP>:4888`: enter that address (e.g. `89.11.166.148:4888`) with
-the pairing code under Connect → I have a code. Connect → Add a device shows both. The hub starts Caddy
-(`hub/front.mjs`), which answers on 4888 with a Let's Encrypt certificate for the IP and passes everything to the hub
-on 127.0.0.1:7777 (browsers only let the https office page reach an https address). Once, on the hub's computer:
+Nothing to set up: no router settings, nothing to install. On any other device open Tiny Agents → **Connect** and
+enter the **office code** shown under Connect on this computer (the hub also prints it when it starts). The hub and
+the page both connect out to Supabase Realtime and meet on a channel named after the code (`hub/link.mjs`,
+`src/cloud/link.ts`); nothing is stored there. The page then asks for a direct WebRTC connection, and once it's open
+everything goes straight between them. Where a network blocks direct connections, it all passes through the channel
+instead (Realtime's free plan: 2 million messages a month; the hub only sends while a device elsewhere is watching).
 
-1. `winget install CaddyServer.Caddy`, then restart the hub.
-2. Router, to this computer (here `192.168.68.60`; reserve that address in the router): forward **TCP 4888** to its
-   4888 (the hub), and **TCP 80** to its 4880 (Let's Encrypt checks on port 80 when it issues the certificate).
-3. Windows firewall, in an admin terminal:
-   `netsh advfirewall firewall add rule name="Tiny Agents hub (Caddy)" dir=in action=allow protocol=TCP localport=4888,4880`
-
-If the home IP changes, the hub gets a certificate for the new one; enter the new address on each device. Caddy logs to
-`~/.tinyagents/caddy.log`. Every request still needs a device token or the computer key, and an address that fails to
-authenticate 20 times is shut out for 15 minutes.
+The code is the key: anyone with it sees the office. **New code** under Connect disconnects every other device.
 
 ## Game mode
 

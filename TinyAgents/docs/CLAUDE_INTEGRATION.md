@@ -31,19 +31,13 @@ office shows nothing live and the staff fall back to their built-in lines; Claud
 
 1. **The hub, once:** see [hub/README.md](../hub/README.md) (Ollama, the model, `npm run hub` or
    `npm run hub:autostart`).
-2. **Your office, once:** open the site, tap the status pill, then **Create my office**. This device is now
-   paired. The first device creates the office; later ones join with a code.
-3. **Each computer, once:** in **Connect → Add a computer**, pick Windows or Mac and copy the setup prompt.
-   Paste it into Claude Code on that computer, and Claude adds the hooks itself. The hooks apply to new
-   sessions; in an open one, run `/hooks`.
-   - With this repo checked out, `npm run install-hooks -- <computer key>` does the same thing
-     (`--hub <url>` for a hub elsewhere, `--approvals` adds the away-mode hook).
-   - To undo: `npm run install-hooks -- --remove`.
-4. **Each viewing device, once:** in **Connect → Add a device**, get a 6-letter code (valid 10 minutes), and enter
-   it on the other device.
+2. **Each computer, once:** `npm run install-hooks -- <computer key>` with this repo checked out (the key is
+   `ingestKey` in `~/.tinyagents/office.json`; `--approvals` adds the away-mode hook, `--remove` undoes it). The
+   hooks apply to new sessions; in an open one, run `/hooks`.
+3. **Each viewing device, once:** Connect → enter the office code shown under Connect on the hub's computer.
 
-The site talks to the hub at `http://127.0.0.1:7777`. Other devices reach it at `https://<home IP>:4888`, entered with the pairing code under
-Connect → I have a code (see hub/README.md → Reaching the hub from anywhere).
+The site talks to the hub at `http://127.0.0.1:7777` on its own computer. Other devices connect with the office code
+shown under Connect there (see hub/README.md → Reaching the hub from anywhere).
 
 ## Security and privacy
 

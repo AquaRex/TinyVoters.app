@@ -1,52 +1,28 @@
 // The Tiny Agents hub: one background app on the computer that runs Claude Code. It receives this and other
 // computers' Claude Code hook events, keeps the office (hub/office.mjs, saved in ~/.tinyagents/office.json),
-// pushes live updates to every open office page, and runs the NPC minds (hub/mind.mjs). From anywhere it's reached
-// at https://<home IP>:4888 through its front door (hub/front.mjs).
+// pushes live updates to every open office page, and runs the NPC minds (hub/mind.mjs). It listens on this computer
+// only; devices elsewhere reach it through hub/link.mjs with the office code, with nothing opened on the router.
 //   npm run hub            (see hub/README.md)
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { Front } from './front.mjs';
+import { Link } from './link.mjs';
 import { Mind } from './mind.mjs';
 import { HubError, Office } from './office.mjs';
 
 const PORT = Number(process.env.TINY_HUB_PORT ?? 7777);
 const office = new Office(path.join(os.homedir(), '.tinyagents', 'office.json'));
 const mind = new Mind();
-const front = new Front((line) => console.log(line));
 /** How often open pages get the office again even without changes, so "for N seconds" counters move. */
 const RESEND_MS = 5000;
-/** Reachable from the internet: an address that keeps failing to authenticate is shut out for a while. */
-const LOCKOUT_AFTER = 20;
-const LOCKOUT_FOR = 15 * 60e3;
-const failures = new Map();
-
-/** The internet address behind a request that came through the front door (Caddy adds it), or null for this computer. */
-function remoteAddress(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0].trim() || null;
-}
-
-function lockedOut(ip) {
-  const f = ip && failures.get(ip);
-  if (f && f.until < Date.now()) {
-    failures.delete(ip);
-    return false;
-  }
-  return !!f && f.count >= LOCKOUT_AFTER;
-}
-
-function failed(ip) {
-  if (ip) {
-    const f = failures.get(ip) ?? { count: 0, until: 0 };
-    failures.set(ip, { count: f.count + 1, until: Date.now() + LOCKOUT_FOR });
-  }
-}
+/** Devices elsewhere get the office again this often even without changes (each send passes the relay when used). */
+const REMOTE_RESEND_MS = 15000;
 
 const RPC = {
-  tiny_create_home: () => office.createHome(),
+  tiny_join: () => office.join(),
+  tiny_office_code: (a) => (office.mustHome(a.p_token), office.remote().code),
+  tiny_new_code: (a) => (office.mustHome(a.p_token), link.setCode(office.newCode()), office.data.officeCode),
   tiny_install_info: (a) => office.installInfo(a.p_token),
-  tiny_pair_start: (a) => office.pairStart(a.p_token),
-  tiny_pair_claim: (a) => office.pairClaim(a.p_code),
   tiny_forget_device: (a) => office.forgetDevice(a.p_token),
   tiny_snapshot: (a) => office.snapshot(a.p_token),
   tiny_messages: (a) => office.messages(a.p_token, a.p_agent, a.p_after),
@@ -67,6 +43,28 @@ const RPC = {
   tiny_save_label: (a) => office.saveLabel(a.p_token, a.p_key, a.p_name),
   tiny_forget_label: (a) => office.forgetLabel(a.p_token, a.p_key),
 };
+
+/** A request from a device elsewhere (hub/link.mjs): it runs as the office code's device. */
+async function serveRemote(kind, name, args) {
+  const token = office.remote().token;
+  if (kind === 'status') {
+    return mind.status();
+  }
+  if (kind === 'mind') {
+    const raw = await mind.ask(args);
+    if (raw === null) {
+      throw new HubError(mind.note || 'The minds are not ready', 503);
+    }
+    return { raw };
+  }
+  if (kind !== 'rpc' || !RPC[name] || name === 'tiny_join' || name === 'tiny_approval_wait') {
+    throw new HubError('not found', 404);
+  }
+  return RPC[name]({ ...args, p_token: token });
+}
+
+const link = new Link(office.remote().code, serveRemote, (line) => console.log(line));
+const pushRemote = () => link.watched && link.push('agents', office.snapshot(office.remote().token));
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -116,10 +114,15 @@ office.onChange(() => {
   pending ??= setTimeout(() => {
     pending = null;
     streams.forEach(pushAgents);
+    pushRemote();
   }, 80);
 });
-mind.onChange(() => streams.forEach((s) => !s.visit && push(s, 'mind', mind.status())));
+mind.onChange(() => {
+  streams.forEach((s) => !s.visit && push(s, 'mind', mind.status()));
+  link.push('mind', mind.status());
+});
 setInterval(() => streams.forEach(pushAgents), RESEND_MS);
+setInterval(pushRemote, REMOTE_RESEND_MS);
 
 function openStream(req, res, url) {
   const stream = { res, token: url.searchParams.get('token'), visit: url.searchParams.get('visit') };
@@ -139,16 +142,11 @@ function openStream(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://hub');
-  const ip = remoteAddress(req);
   try {
-    if (lockedOut(ip)) {
-      send(res, 429, { message: 'too many failed attempts, try again later' });
-    } else if (req.method === 'OPTIONS') {
+    if (req.method === 'OPTIONS') {
       res.writeHead(204, CORS).end();
     } else if (req.method === 'GET' && url.pathname === '/events') {
       openStream(req, res, url);
-    } else if (req.method === 'GET' && url.pathname === '/address') {
-      send(res, 200, { address: front.address });
     } else if (req.method === 'GET' && url.pathname === '/mind/status') {
       send(res, 200, mind.status());
     } else if (req.method === 'POST' && url.pathname === '/ingest') {
@@ -169,9 +167,6 @@ const server = http.createServer(async (req, res) => {
       send(res, 404, { message: 'not found' });
     }
   } catch (e) {
-    if (e instanceof HubError && e.status === 401) {
-      failed(ip);
-    }
     if (!res.headersSent) {
       send(res, e instanceof HubError ? e.status : 500, { message: e instanceof HubError ? e.message : String(e?.message ?? e) });
     }
@@ -184,7 +179,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Tiny Agents hub on http://127.0.0.1:${PORT}`);
   void mind.start().then(() => console.log(`Minds: ${mind.state}${mind.note ? ` (${mind.note})` : ''}`));
-  void front.start();
+  link.start();
+  console.log(`Office code for devices elsewhere: ${office.remote().code}`);
 });
 mind.onChange(() => console.log(`Minds: ${mind.state}${mind.note ? ` (${mind.note})` : ''}`));
 
@@ -193,7 +189,6 @@ setInterval(() => office.sweep(), 10 * 60e3);
 const shutdown = () => {
   office.save();
   mind.stop();
-  front.stop();
   process.exit(0);
 };
 process.on('SIGINT', shutdown);

@@ -12,9 +12,8 @@ const HISTORY_FOR = 2 * 24 * HOUR;
 const HISTORY_MAX = 8000;
 const MESSAGES_MAX = 300;
 const TOOL_STALE = 10 * 60e3;
-const PAIR_FOR = 10 * 60e3;
 const APPROVAL_FOR = 10 * 60e3;
-const PAIR_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 export class HubError extends Error {
   constructor(message, status = 400) {
@@ -81,7 +80,6 @@ export class Office {
   constructor(file) {
     this.file = file;
     this.data = fs.existsSync(file) ? { ...emptyData(), ...JSON.parse(fs.readFileSync(file, 'utf8')) } : emptyData();
-    this.pairings = new Map();
     this.approvals = new Map();
     this.dirty = true;
     this.listeners = new Set();
@@ -123,38 +121,32 @@ export class Office {
     }
   }
 
-  /** The first device creates the office; after that, devices join with a code from a paired one. */
-  createHome() {
-    if (Object.keys(this.data.devices).length) {
-      throw new HubError('this hub already has an office: add this device with a code from one that is already connected', 409);
-    }
-    const token = secret();
-    this.data.devices[hash(token)] = iso(Date.now());
-    this.changed();
-    return { ingestKey: this.data.ingestKey, token };
-  }
-
-  pairStart(token) {
-    this.mustHome(token);
-    let code;
-    do {
-      code = Array.from({ length: 6 }, () => PAIR_ALPHABET[crypto.randomInt(PAIR_ALPHABET.length)]).join('');
-    } while (this.pairings.has(code));
-    this.pairings.set(code, Date.now() + PAIR_FOR);
-    return code;
-  }
-
-  pairClaim(code) {
-    const c = String(code ?? '').trim().toUpperCase();
-    const until = this.pairings.get(c);
-    this.pairings.delete(c);
-    if (!until || until < Date.now()) {
-      throw new HubError('unknown or expired code', 401);
-    }
+  /** A browser on this computer (the hub only listens here) gets its own device token, stored only as a hash. */
+  join() {
     const token = secret();
     this.data.devices[hash(token)] = iso(Date.now());
     this.changed();
     return token;
+  }
+
+  /** The office code devices elsewhere connect with (see link.mjs), and the device token their requests run as. */
+  remote() {
+    if (!this.data.officeCode) {
+      this.newCode();
+    }
+    return { code: this.data.officeCode, token: this.data.remoteToken };
+  }
+
+  /** A new office code: every device elsewhere loses access until it's given the new one. */
+  newCode() {
+    if (this.data.remoteToken) {
+      delete this.data.devices[hash(this.data.remoteToken)];
+    }
+    this.data.officeCode = Array.from({ length: 16 }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join('');
+    this.data.remoteToken = secret();
+    this.data.devices[hash(this.data.remoteToken)] = iso(Date.now());
+    this.changed();
+    return this.data.officeCode;
   }
 
   forgetDevice(token) {
@@ -289,11 +281,6 @@ export class Office {
     for (const [id, a] of this.approvals) {
       if (a.expiresAt < now) {
         this.approvals.delete(id);
-      }
-    }
-    for (const [code, until] of this.pairings) {
-      if (until < now) {
-        this.pairings.delete(code);
       }
     }
     this.changed();

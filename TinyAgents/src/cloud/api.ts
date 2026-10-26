@@ -1,6 +1,7 @@
 import { AgentInfo } from '../agents/agent';
 import type { Person } from '../agents/people';
-import { hubUrl } from './config';
+import { LOCAL_HUB, onHubComputer } from './config';
+import { Link, LinkError } from './link';
 import approveScript from '../../server/tinyagents-approve.mjs?raw';
 
 const TOKEN_KEY = 'tiny-agents.device.v1';
@@ -24,8 +25,33 @@ export class CloudError extends Error {
   }
 }
 
+/** The link to the hub for a device elsewhere (its office code is stored where the device token would be). */
+let link: Link | null = null;
+
+function remote(): Link {
+  const code = deviceToken()!;
+  if (!link || link.code !== code) {
+    link?.stop();
+    link = new Link(code);
+    link.start();
+  }
+  return link;
+}
+
+/** A request through the link, with its failures as CloudErrors. */
+async function viaLink<T>(kind: string, name = '', args: Record<string, unknown> = {}): Promise<T> {
+  try {
+    return await remote().request<T>(kind, name, args);
+  } catch (e) {
+    throw e instanceof LinkError ? new CloudError(e.message, e.status) : e;
+  }
+}
+
 async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${hubUrl()}/rpc/${name}`, {
+  if (!onHubComputer()) {
+    return viaLink<T>('rpc', name, args);
+  }
+  const res = await fetch(`${LOCAL_HUB}/rpc/${name}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(args),
@@ -61,29 +87,60 @@ function saveToken(token: string | null): void {
   }
 }
 
-/** Creates a new office; this device becomes its first viewer. Returns the computers' key. */
-export async function createHome(): Promise<string> {
-  const r = await rpc<{ ingestKey: string; token: string }>('tiny_create_home');
-  saveToken(r.token);
-  return r.ingestKey;
+/** On the hub's computer: this browser gets its own device token. */
+export async function joinOffice(): Promise<void> {
+  saveToken(await rpc<string>('tiny_join'));
 }
 
-export async function claimCode(code: string): Promise<void> {
-  saveToken(await rpc<string>('tiny_pair_claim', { p_code: code }));
-}
-
-/** The hub's public address (https://<home IP>:<port>), for pairing devices elsewhere. */
-export async function hubAddress(): Promise<string> {
-  const res = await fetch(`${hubUrl()}/address`);
-  const { address } = (await res.json()) as { address: string | null };
-  if (!address) {
-    throw new CloudError("The hub doesn't know its public address yet: see hub/README.md", 503);
+/** Elsewhere: connects with the office code (shown on the hub's computer), once the hub answers through it. */
+export async function connectWithCode(code: string): Promise<void> {
+  const clean = code.replace(/[^a-z0-9]/gi, '').toUpperCase();
+  const trial = new Link(clean);
+  trial.start();
+  try {
+    await trial.request('status');
+  } catch (e) {
+    trial.stop();
+    throw e instanceof LinkError && e.status === 504 ? new CloudError('No PC answered with that code: check the code, and that the PC is on with the hub running.', 504) : e;
   }
-  return address;
+  link?.stop();
+  link = trial;
+  saveToken(clean);
 }
 
-export function pairCode(): Promise<string> {
-  return rpc<string>('tiny_pair_start', { p_token: deviceToken() });
+/** The office code devices elsewhere connect with (asked on the hub's computer). */
+export function officeCode(): Promise<string> {
+  return rpc<string>('tiny_office_code', { p_token: deviceToken() });
+}
+
+/** A new office code: every device elsewhere is disconnected until it gets the new one. */
+export function newOfficeCode(): Promise<string> {
+  return rpc<string>('tiny_new_code', { p_token: deviceToken() });
+}
+
+/** How the link to the hub is going for a device elsewhere (null on the hub's computer). */
+export function linkState(): string | null {
+  return onHubComputer() ? null : (link?.state ?? 'connecting');
+}
+
+/** The minds' state on the hub. */
+export async function mindStatus(): Promise<{ state: string; note: string }> {
+  if (!onHubComputer()) {
+    return viaLink('status');
+  }
+  return (await fetch(`${LOCAL_HUB}/mind/status`)).json();
+}
+
+/** One answer from the minds' model, or a CloudError (status 503 when the minds aren't available right now). */
+export async function mindAsk(body: Record<string, unknown>): Promise<{ raw: string }> {
+  if (!onHubComputer()) {
+    return viaLink('mind', '', body);
+  }
+  const res = await fetch(`${LOCAL_HUB}/mind`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, token: deviceToken() }) });
+  if (!res.ok) {
+    throw new CloudError(`mind ${res.status}`, res.status);
+  }
+  return res.json();
 }
 
 export async function ingestKey(): Promise<string> {
@@ -93,6 +150,11 @@ export async function ingestKey(): Promise<string> {
 export async function forgetDevice(): Promise<void> {
   const token = deviceToken();
   saveToken(null);
+  if (!onHubComputer()) {
+    link?.stop();
+    link = null;
+    return;
+  }
   if (token) {
     await rpc('tiny_forget_device', { p_token: token }).catch(() => undefined);
   }
@@ -264,8 +326,24 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
   const open = (token: string) => {
     streamToken = token;
     onStatus('connecting');
+    if (!onHubComputer() && !visitToken) {
+      const l = remote();
+      const refresh = () => viaLink<AgentInfo[]>('rpc', 'tiny_snapshot').then((agents) => {
+        onAgents(agents);
+        onStatus('online');
+      }, () => onStatus('offline'));
+      l.onPush((kind, data) => {
+        if (kind === 'agents' && l === link) {
+          onAgents(data as AgentInfo[]);
+          onStatus('online');
+        }
+      });
+      l.onState((s) => l === link && (s === 'offline' ? onStatus('offline') : void refresh()));
+      void refresh();
+      return;
+    }
     const query = visitToken ? `visit=${encodeURIComponent(visitToken)}` : `token=${encodeURIComponent(token)}`;
-    const stream = new EventSource(`${hubUrl()}/events?${query}`);
+    const stream = new EventSource(`${LOCAL_HUB}/events?${query}`);
     source = stream;
     stream.addEventListener('agents', (e) => {
       onAgents(JSON.parse((e as MessageEvent<string>).data) as AgentInfo[]);
@@ -315,49 +393,6 @@ export function watchOffice(onAgents: (agents: AgentInfo[]) => void, onStatus: (
   };
 }
 
-/** The Claude Code hook command a computer runs for every event (async, never blocks Claude). */
-export function hookCommand(key: string, machine: string, os: 'windows' | 'mac'): string {
-  const curl = os === 'windows' ? 'curl.exe' : 'curl';
-  const safeMachine = machine.replace(/[^\w .-]/g, '').slice(0, 40) || 'computer';
-  return `${curl} -s -m 10 -X POST "${hubUrl()}/ingest" -H "Content-Type: application/json" -H "x-tiny-key: ${key}" -H "x-tiny-machine: ${safeMachine}" --data-binary @-`;
-}
-
-export const HOOK_EVENTS = [
-  'SessionStart',
-  'SessionEnd',
-  'UserPromptSubmit',
-  'PreToolUse',
-  'PostToolUse',
-  'PostToolUseFailure',
-  'PermissionRequest',
-  'PermissionDenied',
-  'Notification',
-  'Stop',
-  'StopFailure',
-  'SubagentStart',
-  'SubagentStop',
-  'PreCompact',
-  'PostCompact',
-  'CwdChanged',
-];
-
-/** The settings.json "hooks" block for one computer. */
-export function hooksJson(key: string, machine: string, os: 'windows' | 'mac'): string {
-  const entry = [{ hooks: [{ type: 'command', command: hookCommand(key, machine, os), async: true, timeout: 15 }] }];
-  return JSON.stringify({ hooks: Object.fromEntries(HOOK_EVENTS.map((e) => [e, entry])) }, null, 2);
-}
-
-/** A prompt to paste into Claude Code on the computer: Claude installs its own hooks. */
-export function installPrompt(key: string, machine: string, os: 'windows' | 'mac'): string {
-  const cmd = hookCommand(key, machine, os);
-  return [
-    'Please connect this computer to my Tiny Agents office by adding hooks to my USER settings file (~/.claude/settings.json; create it if missing).',
-    `For each of these events: ${HOOK_EVENTS.join(', ')}, append this entry to that event's list (keep every existing hook untouched, and replace any earlier entry whose command contains "tiny_ingest" or "/ingest"):`,
-    JSON.stringify({ hooks: [{ type: 'command', command: cmd, async: true, timeout: 15 }] }),
-    'Then show me the events you added. Do not change anything else.',
-  ].join('\n\n');
-}
-
 /**
  * A prompt to paste into Claude Code on a computer: adds the away-mode approvals hook (a PermissionRequest
  * hook that waits for a paired device's decision while away mode is on, and does nothing otherwise).
@@ -368,7 +403,7 @@ export function approvalsPrompt(key: string): string {
     '1. Create the file ~/.claude/tinyagents-approve.mjs with exactly this content:',
     '```js\n' + approveScript.trim() + '\n```',
     '2. In my USER settings file (~/.claude/settings.json), append this entry to the "PermissionRequest" hooks list (keep every existing hook untouched, and replace any earlier entry whose command contains "tinyagents-approve"). Use the absolute path of that file with forward slashes in place of <PATH>:',
-    JSON.stringify({ hooks: [{ type: 'command', command: `node "<PATH>" ${key} ${hubUrl()}`, timeout: 660 }] }),
+    JSON.stringify({ hooks: [{ type: 'command', command: `node "<PATH>" ${key} ${LOCAL_HUB}`, timeout: 660 }] }),
     'Then show me what you changed. Do not change anything else.',
   ].join('\n\n');
 }

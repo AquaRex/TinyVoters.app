@@ -16,5 +16,8 @@
     "puppeteer-core": "^23.11.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "werift": "^0.22.2"
   }
 }

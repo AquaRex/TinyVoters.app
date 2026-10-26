@@ -1,5 +1,4 @@
-import { deviceToken } from '../cloud/api';
-import { hubUrl } from '../cloud/config';
+import { CloudError, deviceToken, mindAsk, mindStatus } from '../cloud/api';
 
 /** Conversation replies first, then reactions, then routine decisions. */
 export type Priority = 0 | 1 | 2;
@@ -94,14 +93,13 @@ class Engine {
       this.set('off', 'Connect this device to your office first');
     } else {
       try {
-        const res = await fetch(`${hubUrl()}/mind/status`);
-        const s = (await res.json()) as { state: string; note: string };
+        const s = await mindStatus();
         if (this.watching) {
           this.set(HUB_STATES[s.state] ?? 'error', s.note);
         }
       } catch {
         if (this.watching) {
-          this.set('error', `The Tiny Agents hub isn't running on ${hubUrl()}`);
+          this.set('error', "Can't reach the Tiny Agents hub on your PC");
         }
       }
     }
@@ -156,21 +154,12 @@ class Engine {
 
   private async run(job: Job): Promise<{ json: Record<string, unknown>; raw: string } | null> {
     try {
-      const res = await fetch(`${hubUrl()}/mind`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token: deviceToken(), messages: job.messages, schema: job.schema, maxTokens: job.maxTokens, temperature: job.temperature }),
-      });
-      if (res.status === 503) {
-        void this.poll();
-        return null;
-      }
-      if (!res.ok) {
-        return null;
-      }
-      const { raw } = (await res.json()) as { raw: string };
+      const { raw } = await mindAsk({ messages: job.messages, schema: job.schema, maxTokens: job.maxTokens, temperature: job.temperature });
       return { json: JSON.parse(raw) as Record<string, unknown>, raw };
-    } catch {
+    } catch (e) {
+      if (e instanceof CloudError && e.status === 503) {
+        void this.poll();
+      }
       return null;
     }
   }

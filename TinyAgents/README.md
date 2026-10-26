@@ -26,9 +26,8 @@ Live at **https://tinyvoters.app/tinyagents/**. This folder lives inside the `Ti
 
 1. Run the **hub** on the computer that runs Claude Code: see [hub/README.md](hub/README.md) (`npm run hub`, or
    `npm run hub:autostart` to start it with Windows). It also runs the staff's minds.
-2. On the site, tap the status pill, then **Create my office**.
-3. **Add a computer**: paste the setup prompt into Claude Code on each computer, once.
-4. **Add a device**: pair your phone with a 6-letter code.
+2. Connect that computer's Claude Code once: `npm run install-hooks -- <computer key>` (see hub/README.md).
+3. Other devices: Connect → enter the **office code** shown under Connect on the hub's computer.
 
 Details, privacy and limits: [docs/CLAUDE_INTEGRATION.md](docs/CLAUDE_INTEGRATION.md).
 
