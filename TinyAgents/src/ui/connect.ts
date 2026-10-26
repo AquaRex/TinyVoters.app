@@ -1,7 +1,8 @@
 import {
   CloudError, approvalsPrompt, awayInfo, claimCode, createHome, deviceToken, forgetDevice, hooksJson, ingestKey, installPrompt, pairCode,
-  revokeVisitorLink, setAway, visitToken, visitorLink,
+  hubAddress, revokeVisitorLink, setAway, visitToken, visitorLink,
 } from '../cloud/api';
+import { hubUrl, setHubUrl } from '../cloud/config';
 
 type View = 'start' | 'code' | 'home';
 
@@ -14,7 +15,7 @@ export class ConnectDialog {
   private view: View = 'start';
   private os: 'windows' | 'mac' = /Mac|iPhone|iPad/.test(navigator.userAgent) ? 'mac' : 'windows';
   private machine = /Mac/.test(navigator.userAgent) ? 'MacBook' : 'PC';
-  private code: { value: string; until: number } | null = null;
+  private code: { value: string; address: string; until: number } | null = null;
 
   constructor(private notify: (msg: string) => void) {
     this.root = document.getElementById('connect')!;
@@ -23,7 +24,11 @@ export class ConnectDialog {
         this.close();
       }
     });
-    const pair = new URLSearchParams(location.search).get('pair');
+    const params = new URLSearchParams(location.search);
+    const pair = params.get('pair');
+    if (params.get('hub')) {
+      setHubUrl(params.get('hub')!);
+    }
     if (pair) {
       history.replaceState(null, '', location.pathname + location.hash);
       this.join(pair);
@@ -101,13 +106,16 @@ export class ConnectDialog {
     box.insertAdjacentHTML(
       'beforeend',
       `<h2>Join your office</h2>
-       <p>Enter the 6-letter code shown on a device that's already connected.</p>
-       <form class="cn-code"><input maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" aria-label="Pairing code" /><button class="primary">Join</button></form>
+       <p>Enter your PC's address and the 6-letter code, both shown under <b>Add a device</b> on a device that's already connected.</p>
+       <form class="cn-code"><input class="cn-hub" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="89.11.166.148:4888" aria-label="Your PC's address" /><input class="cn-pin" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" aria-label="Pairing code" /><button class="primary">Join</button></form>
        <button class="cn-link" data-act="back">Back</button>`,
     );
-    const input = box.querySelector('input')!;
+    const input = box.querySelector<HTMLInputElement>('.cn-pin')!;
+    const hub = box.querySelector<HTMLInputElement>('.cn-hub')!;
+    hub.value = hubUrl().replace(/^https:\/\//, '');
     box.querySelector('form')!.addEventListener('submit', (e) => {
       e.preventDefault();
+      setHubUrl(hub.value);
       this.join(input.value);
     });
     box.querySelector('[data-act="back"]')!.addEventListener('click', () => {
@@ -254,9 +262,9 @@ export class ConnectDialog {
   private renderPair(el: HTMLElement): void {
     const c = this.code;
     if (c && c.until > Date.now()) {
-      const link = `${location.origin}${location.pathname}?pair=${c.value}`;
+      const link = `${location.origin}${location.pathname}?pair=${c.value}&hub=${encodeURIComponent(c.address)}`;
       el.innerHTML = `<div class="cn-codebig">${c.value}</div>
-        <p class="cn-small">Enter it under <b>Connect → I have a code</b>, or open this link on the device (valid 10 minutes):</p>
+        <p class="cn-small">On the other device: <b>Connect → I have a code</b>, address <b>${c.address.replace(/^https:\/\//, '')}</b> and this code. Or open this link there (valid 10 minutes):</p>
         <div class="cn-row"><input class="cn-linkbox" readonly /><button data-act="copylink">Copy link</button></div>`;
       const box = el.querySelector<HTMLInputElement>('.cn-linkbox')!;
       box.value = link;
@@ -268,7 +276,7 @@ export class ConnectDialog {
     el.innerHTML = `<button data-act="pair">Get a pairing code</button>`;
     el.querySelector('[data-act="pair"]')!.addEventListener('click', async () => {
       try {
-        this.code = { value: await pairCode(), until: Date.now() + 10 * 60 * 1000 };
+        this.code = { value: await pairCode(), address: await hubAddress(), until: Date.now() + 10 * 60 * 1000 };
         this.renderPair(el);
       } catch (e) {
         this.notify(e instanceof CloudError ? e.message : 'Could not reach the office');

@@ -42,8 +42,8 @@ office shows nothing live and the staff fall back to their built-in lines; Claud
 4. **Each viewing device, once:** in **Connect → Add a device**, get a 6-letter code (valid 10 minutes), and enter
    it on the other device.
 
-The site talks to the hub at `http://127.0.0.1:7777`. A browser on another device needs the hub reachable at an
-address of its own; open the site once with `?hub=<that address>` and it's remembered.
+The site talks to the hub at `http://127.0.0.1:7777`. Other devices reach it at `https://<home IP>:4888`, entered with the pairing code under
+Connect → I have a code (see hub/README.md → Reaching the hub from anywhere).
 
 ## Security and privacy
 

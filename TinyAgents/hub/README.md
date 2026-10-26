@@ -8,7 +8,7 @@ One background app on the computer that runs Claude Code. It:
 - pushes live updates to every open office page,
 - runs the NPC minds: the fine-tuned model in its own Ollama instance on port 11435.
 
-The office page talks to it at `http://127.0.0.1:7777` (open the page once with `?hub=<url>` to use another address).
+The office page talks to it at `http://127.0.0.1:7777` on this computer, and at `https://<home IP>:4888` from anywhere else (see below).
 
 ## Setup
 
@@ -34,6 +34,23 @@ ollama create tinyagent-v7b -f ollama/Modelfile.v7b
 The hub sends the exact training prompt (ChatML, no thinking block) in raw mode, so the Modelfile's template is
 never used. About 1.2 GB of GPU memory and under 1 GB of RAM while loaded; it unloads after 3 idle minutes.
 llama.cpp's prompt cache is switched off (`LLAMA_ARG_CACHE_RAM=0`): left on, it grows to 8 GB of RAM.
+
+## Reaching the hub from anywhere
+
+Other devices reach the hub at `https://<this home's IP>:4888`: enter that address (e.g. `89.11.166.148:4888`) with
+the pairing code under Connect → I have a code. Connect → Add a device shows both. The hub starts Caddy
+(`hub/front.mjs`), which answers on 4888 with a Let's Encrypt certificate for the IP and passes everything to the hub
+on 127.0.0.1:7777 (browsers only let the https office page reach an https address). Once, on the hub's computer:
+
+1. `winget install CaddyServer.Caddy`, then restart the hub.
+2. Router, to this computer (here `192.168.68.60`; reserve that address in the router): forward **TCP 4888** to its
+   4888 (the hub), and **TCP 80** to its 4880 (Let's Encrypt checks on port 80 when it issues the certificate).
+3. Windows firewall, in an admin terminal:
+   `netsh advfirewall firewall add rule name="Tiny Agents hub (Caddy)" dir=in action=allow protocol=TCP localport=4888,4880`
+
+If the home IP changes, the hub gets a certificate for the new one; enter the new address on each device. Caddy logs to
+`~/.tinyagents/caddy.log`. Every request still needs a device token or the computer key, and an address that fails to
+authenticate 20 times is shut out for 15 minutes.
 
 ## Game mode
 

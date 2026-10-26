@@ -20,6 +20,8 @@ const hub = fileURLToPath(new URL('./hub.mjs', import.meta.url));
 const dir = path.join(os.homedir(), '.tinyagents');
 fs.mkdirSync(dir, { recursive: true });
 const log = path.join(dir, 'hub.log');
-const command = `cmd /c ""${process.execPath}"" ""${hub}"" >> ""${log}"" 2>&1`;
-fs.writeFileSync(startup, `CreateObject("WScript.Shell").Run "${command}", 0, False\r\n`);
+// cmd strips one pair of outer quotes from a command with several quoted paths, so the whole command gets its own pair
+const command = `cmd /c ""${process.execPath}" "${hub}" >> "${log}" 2>&1"`;
+// a VBScript string literal doubles its quotes
+fs.writeFileSync(startup, `CreateObject("WScript.Shell").Run "${command.replace(/"/g, '""')}", 0, False\r\n`);
 console.log(`The hub now starts hidden when you sign in (${startup}). Log: ${log}`);

@@ -72,6 +72,16 @@ export async function claimCode(code: string): Promise<void> {
   saveToken(await rpc<string>('tiny_pair_claim', { p_code: code }));
 }
 
+/** The hub's public address (https://<home IP>:<port>), for pairing devices elsewhere. */
+export async function hubAddress(): Promise<string> {
+  const res = await fetch(`${hubUrl()}/address`);
+  const { address } = (await res.json()) as { address: string | null };
+  if (!address) {
+    throw new CloudError("The hub doesn't know its public address yet: see hub/README.md", 503);
+  }
+  return address;
+}
+
 export function pairCode(): Promise<string> {
   return rpc<string>('tiny_pair_start', { p_token: deviceToken() });
 }
