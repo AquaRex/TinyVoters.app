@@ -9,5 +9,7 @@ All recordings here are CC0 (public domain): free to use, no attribution require
   [freesound.org/s/678248](https://freesound.org/s/678248/), via
   [Remotion's sound effects](https://www.remotion.dev/docs/sfx/mouse-click). CC0. The scroll-wheel notches are
   built from slivers of it in `src/ui/recordings.ts`.
+- `wheel.wav`: 12 single scroll-wheel notches (high-passed, faded and level-matched) cut from 6.6-10.3 s of
+  "COMPUTER_MOUSE_SCROLL.WAV" by dansotak, [freesound.org/s/137402](https://freesound.org/s/137402/). CC0.
 - `lift-doors.wav`: the sliding part of "Elevator_Door" by PagDev,
   [opengameart.org/content/elevatordoor](https://opengameart.org/content/elevatordoor). CC0.

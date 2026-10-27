@@ -323,7 +323,8 @@ export class Office {
     }
     const main = sessions[sid];
     main.lastAt = iso(Date.now());
-    main.cwd = evt.cwd ?? main.cwd;
+    // the folder the session started in: its project (and so its team and that team's name) stays put when Claude moves into a subfolder
+    main.cwd = main.cwd || evt.cwd || '';
     main.mode = evt.permission_mode ?? main.mode;
     main.model = model ?? main.model;
     main.machine = machine || main.machine;
@@ -427,13 +428,6 @@ export class Office {
         if (agent) {
           this.note(sid, 'note', `Helper finished: ${evt.agent_type ?? 'subagent'}`);
           this.deleteSession(id);
-        }
-        break;
-      case 'CwdChanged':
-        for (const s of Object.values(sessions)) {
-          if (s.sessionId === sid) {
-            s.cwd = evt.new_cwd ?? s.cwd;
-          }
         }
         break;
     }

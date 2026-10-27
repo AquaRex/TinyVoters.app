@@ -190,12 +190,42 @@ document.addEventListener('keydown', (e) => {
   }
 }, true);
 
-/** Each wheel step (one tick, at most every 40 ms) sounds like a mouse wheel. */
-let lastNotch = 0;
-document.addEventListener('wheel', (e) => {
-  if (recorded && e.timeStamp - lastNotch > 40) {
-    lastNotch = e.timeStamp;
-    uiSample('scroll', recorded.tick, 0.5);
+/**
+ * Scrolling a panel or list sounds like a mouse wheel: one recorded wheel notch per wheel step that scrolls it, or per
+ * TICK_PX when dragged, swiped or scrolled by key. A panel scrolling itself (the chat following new messages) is silent.
+ */
+const TICK_PX = 60;
+const scrolledTo = new WeakMap<Element, number>();
+/** a wheel step that hasn't made its notch yet (the canvas takes wheel steps too: only one that scrolls a panel sounds) */
+let wheelAt = -1e9;
+let handAt = -1e9;
+document.addEventListener('wheel', (e) => (wheelAt = e.timeStamp), { capture: true, passive: true });
+for (const ev of ['touchmove', 'pointermove', 'keydown']) {
+  document.addEventListener(ev, (e) => (ev !== 'pointermove' || (e as PointerEvent).buttons) && (handAt = e.timeStamp), { capture: true, passive: true });
+}
+
+function notch(): void {
+  if (recorded) {
+    uiSample('scroll', recorded.wheel[Math.floor(Math.random() * recorded.wheel.length)], 0.8);
+  }
+}
+
+document.addEventListener('scroll', (e) => {
+  const el = e.target;
+  if (!(el instanceof Element)) {
+    return;
+  }
+  const at = el.scrollTop + el.scrollLeft;
+  if (e.timeStamp - wheelAt < 300) {
+    wheelAt = -1e9;
+    scrolledTo.set(el, at);
+    notch();
+    return;
+  }
+  const from = scrolledTo.get(el) ?? at;
+  scrolledTo.set(el, Math.abs(at - from) >= TICK_PX ? at : from);
+  if (Math.abs(at - from) >= TICK_PX && e.timeStamp - handAt < 800) {
+    notch();
   }
 }, { capture: true, passive: true });
 

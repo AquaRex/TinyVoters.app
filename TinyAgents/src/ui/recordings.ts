@@ -1,18 +1,20 @@
 /**
  * Office sounds from real recordings (CC0, see public/sounds/CREDITS.md): keystrokes (press and release, cut from one
- * sheet of 0.2 s slots), a mouse click, scroll-wheel notches built from slivers of that click, and the lift doors.
+ * sheet of 0.2 s slots), a mouse click, scroll-wheel notches built from slivers of that click, recorded wheel notches
+ * (one sheet of 0.05 s slots) and the lift doors.
  */
 export interface Recordings {
   keys: Float32Array[];
   click: Float32Array;
   scrolls: Float32Array[];
-  /** one scroll-wheel notch, for the UI: the click's press, short and fading */
-  tick: Float32Array;
+  /** single scroll-wheel notches, recorded (for the UI) */
+  wheel: Float32Array[];
   /** the lift doors sliding (played for opening and, a touch slower, for closing) */
   door: Float32Array;
 }
 
 const KEY_SLOT = 0.2;
+const WHEEL_SLOT = 0.05;
 /** Length of the click's opening tick, used as one scroll-wheel notch. */
 const NOTCH = 0.004;
 
@@ -36,17 +38,15 @@ function scroll(notch: Float32Array, sr: number, notches: number): Float32Array 
   return d;
 }
 
-/** The click's press from its onset, 12 ms fading out: a crisp wheel tick. */
-function tick(click: Float32Array, sr: number): Float32Array {
-  const d = click.slice(Math.round(sr * 0.0035), Math.round(sr * 0.0155));
-  return d.map((v, i) => v * (1 - i / d.length));
+function slots(sheet: Float32Array, slot: number): Float32Array[] {
+  return Array.from({ length: Math.floor(sheet.length / slot) }, (_, i) => sheet.slice(i * slot, (i + 1) * slot));
 }
 
 export async function loadRecordings(ctx: AudioContext): Promise<Recordings> {
-  const [sheet, click, door] = await Promise.all([decode(ctx, 'keys.wav'), decode(ctx, 'click.wav'), decode(ctx, 'lift-doors.wav')]);
+  const [sheet, click, door, wheelSheet] = await Promise.all([decode(ctx, 'keys.wav'), decode(ctx, 'click.wav'), decode(ctx, 'lift-doors.wav'), decode(ctx, 'wheel.wav')]);
   const sr = ctx.sampleRate;
   const slot = Math.round(sr * KEY_SLOT);
-  const keys = Array.from({ length: Math.floor(sheet.length / slot) }, (_, i) => sheet.slice(i * slot, (i + 1) * slot));
+  const keys = slots(sheet, slot);
   const notch = click.slice(0, Math.round(sr * NOTCH));
-  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), tick: tick(click, sr), door };
+  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), wheel: slots(wheelSheet, Math.round(sr * WHEEL_SLOT)), door };
 }
