@@ -401,9 +401,9 @@ function think(a: Agent, m: Mind, priority: Priority): void {
   m.thoughtOf = moment(a, m);
   m.nextThought = now + (MUSE_EVERY[0] + Math.random() * (MUSE_EVERY[1] - MUSE_EVERY[0])) * 1000;
   const plans = planLabels(a);
-  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 170 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 220 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
   const user = [context(a), ...preoccupations(a), 'What are you thinking right now?'].join('\n');
-  void engine.ask(a, priority, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 72, () => a.gone).then((r) => {
+  void engine.ask(a, priority, 'thought', [{ role: 'system', content: innerVoice(a) }, { role: 'user', content: user }], schema, 96, () => a.gone).then((r) => {
     const text = words(r?.json.think, 28);
     if (text.split(' ').length >= 3 && !offClock(text, user)) {
       m.thought = { text, at: performance.now(), ms: performance.now() - now };
@@ -504,7 +504,14 @@ export function favourPlan(a: Agent, options: Choice[]): Choice[] {
 
 // ---------------------------------------------------------------- output checks
 
-const words = (s: unknown, n: number): string => (typeof s === 'string' ? s.trim().split(/\s+/).slice(0, n).join(' ') : '');
+/** At most n words, ending on a whole sentence: an unfinished line is cut back to its last full stop, or dropped. */
+const words = (s: unknown, n: number): string => {
+  if (typeof s !== 'string') {
+    return '';
+  }
+  const text = s.trim().split(/\s+/).slice(0, n).join(' ');
+  return /[.!?]['")]?$/.test(text) ? text : (/^.*[.!?]/.exec(text)?.[0] ?? '');
+};
 const bag = (s: string) => s.toLowerCase().replace(/[^a-z0-9' ]/g, ' ').split(/\s+/).filter(Boolean);
 
 /** The last lines any mind said, so nobody repeats a stock phrase over and over. */
@@ -599,9 +606,9 @@ export function prefetch(a: Agent, options: Choice[]): void {
   const intent = planOf(m);
   const planned = intent ? options.findIndex((o) => fulfils(o.label, intent)) : -1;
   const allowed = planned >= 0 ? [String(planned + 1)] : options.map((_, i) => String(i + 1));
-  const schema = { type: 'object', properties: { choice: { type: 'string', enum: allowed }, say: { type: 'string', maxLength: 90 } }, required: ['choice', 'say'] };
+  const schema = { type: 'object', properties: { choice: { type: 'string', enum: allowed }, say: { type: 'string', maxLength: 120 } }, required: ['choice', 'say'] };
   const user = `${context(a)}\nOptions: ${menu}.\nWhich number do you pick, and what do you say?`;
-  void ask(a, m, ROUTINE, 'decision', user, schema, 48, () => a.gone || a.leaving || a.info.busy, 0.8).then((r) => {
+  void ask(a, m, ROUTINE, 'decision', user, schema, 60, () => a.gone || a.leaving || a.info.busy, 0.8).then((r) => {
     plan.ms = performance.now() - plan.asked;
     const index = Number(r?.choice) - 1;
     plan.answer = r && index >= 0 && index < options.length ? { index, say: line(r.say, 14, options.map((o) => o.label), user) } : null;
@@ -698,9 +705,9 @@ function react(a: Agent, event: string, question: string, apply: (say: string, m
   reactedAt.set(a, now);
   remember(a, event);
   const plans = planLabels(a);
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 110 }, ...planProp(plans) }, required: ['say', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 140 }, ...planProp(plans) }, required: ['say', ...planKey(plans)] };
   const user = `${context(a, focus)}\n${event}\n${question}`;
-  void ask(a, m, REACTION, 'reaction', user, schema, 56, () => a.gone || a.leaving, 0.6).then((r) => {
+  void ask(a, m, REACTION, 'reaction', user, schema, 72, () => a.gone || a.leaving, 0.6).then((r) => {
     if (!r || a.gone || a.hidden) {
       return;
     }
@@ -840,10 +847,10 @@ Conversation.writer = (conv, speaker, excuse) => {
     ? `Talking for ${secs} s:\n${recent.map((l) => `${l.who.name}: "${l.text}"`).join('\n')}${excuse ? `\n${CALLED_AWAY}` : conv.winding ? '\nYou have talked a while, time to wrap up and get back to work.' : ''}\nWhat do you say to ${recent[recent.length - 1].who === speaker ? other?.name ?? 'them' : recent[recent.length - 1].who.name}?`
     : `You start ${kind} with ${other?.name ?? 'your coworker'} about ${other ? topicOf(other) : 'the day'}. What do you say?`;
   const plans = planLabels(speaker);
-  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 120 }, end: { type: 'boolean' }, ...planProp(plans) }, required: ['say', 'end', ...planKey(plans)] };
+  const schema = { type: 'object', properties: { say: { type: 'string', maxLength: 150 }, end: { type: 'boolean' }, ...planProp(plans) }, required: ['say', 'end', ...planKey(plans)] };
   const user = `${context(speaker, other)}\n${so}`;
   const t = performance.now();
-  return ask(speaker, m, REPLY, 'reply', user, schema, 60, () => conv.done, 0.6).then((r) => {
+  return ask(speaker, m, REPLY, 'reply', user, schema, 80, () => conv.done, 0.6).then((r) => {
     const say = line(r?.say, 20, recent.map((l) => l.text), user);
     if (!r || !say) {
       return null;
