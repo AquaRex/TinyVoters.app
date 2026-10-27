@@ -38,6 +38,19 @@ button {
   cursor: pointer;
 }
 
+/* holding a control on a touch screen presses it, it doesn't select its text or open the callout */
+button,
+a[href],
+[role='button'],
+[role='slider'],
+label,
+select,
+.ro-team {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 kbd,
 code {
   font-family: var(--font);

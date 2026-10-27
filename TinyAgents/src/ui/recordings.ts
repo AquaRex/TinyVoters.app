@@ -6,6 +6,8 @@ export interface Recordings {
   keys: Float32Array[];
   click: Float32Array;
   scrolls: Float32Array[];
+  /** one scroll-wheel notch */
+  notch: Float32Array;
   /** the lift doors sliding (played for opening and, a touch slower, for closing) */
   door: Float32Array;
 }
@@ -40,5 +42,5 @@ export async function loadRecordings(ctx: AudioContext): Promise<Recordings> {
   const slot = Math.round(sr * KEY_SLOT);
   const keys = Array.from({ length: Math.floor(sheet.length / slot) }, (_, i) => sheet.slice(i * slot, (i + 1) * slot));
   const notch = click.slice(0, Math.round(sr * NOTCH));
-  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), door };
+  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), notch: scroll(notch, sr, 1), door };
 }

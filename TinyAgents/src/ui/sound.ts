@@ -1,4 +1,5 @@
 import { ux } from './prefs';
+import { type Recordings, loadRecordings } from './recordings';
 
 export type Cue = 'permission' | 'done' | 'bell' | 'celebrate';
 
@@ -55,6 +56,7 @@ function unlock(): void {
       .then((r) => r.arrayBuffer())
       .then((b) => audio.decodeAudioData(b))
       .then((b) => (clickParts = { down: cut(audio, b, PRESS_AT, RELEASE_AT), up: cut(audio, b, RELEASE_AT, b.duration) }));
+    void loadRecordings(audio).then((r) => (recorded = r));
   }
   if (ctx.state === 'suspended') {
     void ctx.resume();
@@ -160,6 +162,42 @@ document.addEventListener('pointerup', () => {
   }
   pressed = false;
 }, true);
+
+let recorded: Recordings | null = null;
+
+/** A recorded office sound (a keystroke, a wheel notch) on the UI channel. */
+function uiSample(data: Float32Array, gain: number): void {
+  const out = channel('ui');
+  if (!ctx || !out || !ux.ui) {
+    return;
+  }
+  const buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
+  buf.getChannelData(0).set(data);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = 0.95 + Math.random() * 0.1;
+  const g = ctx.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(out);
+  src.start();
+}
+
+/** Typing in a text field sounds like the office keyboards. */
+document.addEventListener('keydown', (e) => {
+  const field = (e.target as Element | null)?.closest?.('input:not([type="checkbox"]):not([type="range"]), textarea, [contenteditable="true"]');
+  if (recorded && field && !e.repeat) {
+    uiSample(recorded.keys[Math.floor(Math.random() * recorded.keys.length)], 0.6);
+  }
+}, true);
+
+/** Each wheel step (one notch, at most every 40 ms) sounds like the office mice. */
+let lastNotch = 0;
+document.addEventListener('wheel', (e) => {
+  if (recorded && e.timeStamp - lastNotch > 40) {
+    lastNotch = e.timeStamp;
+    uiSample(recorded.notch, 0.8);
+  }
+}, { capture: true, passive: true });
 
 /** Play a chime; does nothing while chimes are off or before the first user gesture. */
 export function playCue(cue: Cue): void {
