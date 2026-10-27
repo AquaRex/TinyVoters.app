@@ -62,6 +62,8 @@ export interface Mind {
   lastLine: { text: string; at: number; ms: number } | null;
   /** the latest private thought (shown in the worker's window, never said aloud, and on its mind in every prompt) */
   thought: { text: string; at: number; ms: number } | null;
+  /** the moment that thought was about (see moment()) */
+  thoughtOf: string;
   /** what it intends to do next when free (an option label like "coffee" or "chat with Theo"), from a thought or a talk */
   plan: { label: string; at: number } | null;
   /** what others told it today, which it may pass on if it finds it interesting */
@@ -83,7 +85,7 @@ function mind(a: Agent): Mind | undefined {
   }
   let m = minds.get(a);
   if (!m) {
-    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null, plan: null, heard: [], nextThought: performance.now() + 5000 + Math.random() * 40000 };
+    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null, thoughtOf: '', plan: null, heard: [], nextThought: performance.now() + 5000 + Math.random() * 40000 };
     minds.set(a, m);
     noteTurn(a);
   }
@@ -315,19 +317,15 @@ const seeded = (key: string) => {
   return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0) / 4294967296);
 };
 const pick = <T>(list: T[], n: number, rand: () => number) => [...list].sort(() => rand() - 0.5).slice(0, n);
-/** What goes on in the office today (the same for everyone), and each person's own gripes today. */
+/** What goes on in the office today: each desk worker saw one of these first-hand, everyone else only hears it from them. */
 const todaysNews = pick(officeLife.news, 4, seeded(today));
 const gripes = officeLife.gripes as Record<string, string[]>;
 
-function gripeOf(a: Agent): string {
-  const own = pick(gripes[a.npc ? a.role.id : 'worker'] ?? [], 2, seeded(`${today}|${a.slot}`));
-  return own[Math.floor(Math.random() * own.length)] ?? '';
-}
-
-/** Office news and a gripe now and then, so minds have the everyday office to talk about besides their needs. */
+/** Office news and the person's one gripe of the day, now and then, so minds have the everyday office to talk about. */
 function officeTalk(a: Agent): string[] {
-  const news = Math.random() < 0.6 ? pick(todaysNews, Math.random() < 0.5 ? 1 : 2, Math.random) : [];
-  const gripe = Math.random() < 0.45 ? gripeOf(a) : '';
+  const rand = seeded(`${today}|${a.slot}`);
+  const news = !a.npc && Math.random() < 0.25 ? pick(todaysNews, 1, rand) : [];
+  const gripe = Math.random() < 0.15 ? pick(gripes[a.npc ? a.role.id : 'worker'] ?? [], 1, rand)[0] : '';
   return [news.length ? `Around the office: ${news.join('; ')}.` : '', gripe ? `Bugging you: ${gripe}.` : ''];
 }
 
@@ -363,7 +361,7 @@ const URGENT: Partial<Record<NeedId, string>> = { bladder: 'needs the restroom',
 /** Seconds between fresh thoughts while the player keeps a worker's window open. */
 const THOUGHT_EVERY = 20;
 /** Seconds between thoughts of their own (random in this range). */
-const MUSE_EVERY: [number, number] = [45, 100];
+const MUSE_EVERY: [number, number] = [60, 150];
 /** Seconds a thought stays on the mind (in every prompt). */
 const ON_MIND = 240;
 const thoughtAsked = new WeakMap<Agent, number>();
@@ -386,9 +384,21 @@ function preoccupations(a: Agent): string[] {
   return out;
 }
 
+/** What a thought is about. While none of it changes, the last thought still stands: nothing new to think about. */
+function moment(a: Agent, m: Mind): string {
+  const i = a.info;
+  const urgent = NEED_IDS.filter((id) => URGENT[id] && urgency(a.needs[id]) > 0.8);
+  return [place(a), a.statusText.replace(/ · .*/, ''), i.title, i.busy, (i.errors ?? 0) > 2, session.get(a), a.conv?.kind, m.memory.at(-1), m.heard.length, urgent].join('|');
+}
+
+function fresh(a: Agent, m: Mind): boolean {
+  return !m.thought || performance.now() - m.thought.at > ON_MIND * 1000 || moment(a, m) !== m.thoughtOf;
+}
+
 /** Asks the agent's mind what it's thinking; the thought stays on its mind and may set a plan. */
 function think(a: Agent, m: Mind, priority: Priority): void {
   const now = performance.now();
+  m.thoughtOf = moment(a, m);
   m.nextThought = now + (MUSE_EVERY[0] + Math.random() * (MUSE_EVERY[1] - MUSE_EVERY[0])) * 1000;
   const plans = planLabels(a);
   const schema = { type: 'object', properties: { think: { type: 'string', maxLength: 170 }, ...planProp(plans) }, required: ['think', ...planKey(plans)] };
@@ -406,7 +416,7 @@ function think(a: Agent, m: Mind, priority: Priority): void {
 export function wantThought(a: Agent): void {
   const m = mind(a);
   const now = performance.now();
-  if (!m || now - (thoughtAsked.get(a) ?? -1e9) < THOUGHT_EVERY * 1000) {
+  if (!m || now - (thoughtAsked.get(a) ?? -1e9) < THOUGHT_EVERY * 1000 || !fresh(a, m)) {
     return;
   }
   thoughtAsked.set(a, now);
@@ -417,7 +427,11 @@ export function wantThought(a: Agent): void {
 export function muse(a: Agent): void {
   const m = mind(a);
   if (m && performance.now() >= m.nextThought && !engine.pending.has(a)) {
-    think(a, m, ROUTINE);
+    if (fresh(a, m)) {
+      think(a, m, ROUTINE);
+    } else {
+      m.nextThought = performance.now() + 20000;
+    }
   }
 }
 
