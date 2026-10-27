@@ -3,8 +3,8 @@ import { type Recordings, loadRecordings } from './recordings';
 
 export type Cue = 'permission' | 'done' | 'bell' | 'celebrate';
 
-export type Channel = 'music' | 'office' | 'chimes' | 'weather' | 'ui';
-const CHANNELS: Channel[] = ['music', 'office', 'chimes', 'weather', 'ui'];
+export type Channel = 'music' | 'office' | 'chimes' | 'weather' | 'ui' | 'typing' | 'scroll';
+const CHANNELS: Channel[] = ['music', 'office', 'chimes', 'weather', 'ui', 'typing', 'scroll'];
 /** Channel gain at 50% volume (the original loudness); 100% doubles it. */
 const BASE = 0.5;
 
@@ -31,8 +31,8 @@ export function applyAudio(): void {
     return;
   }
   const t = ctx.currentTime;
-  const on: Record<Channel, boolean> = { music: ux.music, office: ux.office, chimes: ux.chimes, weather: ux.weather, ui: ux.ui };
-  const vol: Record<Channel, number> = { music: ux.volume, office: ux.officeVol, chimes: ux.chimesVol, weather: ux.weatherVol, ui: ux.uiVol };
+  const on: Record<Channel, boolean> = { music: ux.music, office: ux.office, chimes: ux.chimes, weather: ux.weather, ui: ux.ui, typing: ux.typing, scroll: ux.scroll };
+  const vol: Record<Channel, number> = { music: ux.volume, office: ux.officeVol, chimes: ux.chimesVol, weather: ux.weatherVol, ui: ux.uiVol, typing: ux.typingVol, scroll: ux.scrollVol };
   master.gain.setTargetAtTime(ux.master * 2, t, 0.05);
   for (const [c, g] of channels) {
     g.gain.setTargetAtTime(on[c] ? vol[c] * 2 * BASE * (c === 'ui' ? UI_LEVEL : 1) : 0, t, 0.05);
@@ -165,10 +165,10 @@ document.addEventListener('pointerup', () => {
 
 let recorded: Recordings | null = null;
 
-/** A recorded office sound (a keystroke, a wheel notch) on the UI channel. */
-function uiSample(data: Float32Array, gain: number): void {
-  const out = channel('ui');
-  if (!ctx || !out || !ux.ui) {
+/** A recorded office sound (a keystroke, a wheel tick) on its own channel. */
+function uiSample(c: Channel, data: Float32Array, gain: number): void {
+  const out = channel(c);
+  if (!ctx || !out) {
     return;
   }
   const buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
@@ -186,16 +186,16 @@ function uiSample(data: Float32Array, gain: number): void {
 document.addEventListener('keydown', (e) => {
   const field = (e.target as Element | null)?.closest?.('input:not([type="checkbox"]):not([type="range"]), textarea, [contenteditable="true"]');
   if (recorded && field && !e.repeat) {
-    uiSample(recorded.keys[Math.floor(Math.random() * recorded.keys.length)], 0.6);
+    uiSample('typing', recorded.keys[Math.floor(Math.random() * recorded.keys.length)], 0.25);
   }
 }, true);
 
-/** Each wheel step (one notch, at most every 40 ms) sounds like the office mice. */
+/** Each wheel step (one tick, at most every 40 ms) sounds like a mouse wheel. */
 let lastNotch = 0;
 document.addEventListener('wheel', (e) => {
   if (recorded && e.timeStamp - lastNotch > 40) {
     lastNotch = e.timeStamp;
-    uiSample(recorded.notch, 0.8);
+    uiSample('scroll', recorded.tick, 0.5);
   }
 }, { capture: true, passive: true });
 

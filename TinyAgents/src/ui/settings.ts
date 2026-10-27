@@ -8,9 +8,9 @@ import { applyAudio, playCue, uiClick } from './sound';
 import { aiWanted, setAi } from '../mind/brain';
 import { engine } from '../mind/engine';
 
-type AudioSwitch = 'music' | 'office' | 'chimes' | 'weather' | 'ui';
-type AudioVolume = 'master' | 'volume' | 'officeVol' | 'chimesVol' | 'weatherVol' | 'uiVol';
-const SWITCH_OF: Record<Exclude<AudioVolume, 'master'>, AudioSwitch> = { volume: 'music', officeVol: 'office', chimesVol: 'chimes', weatherVol: 'weather', uiVol: 'ui' };
+type AudioSwitch = 'music' | 'office' | 'chimes' | 'weather' | 'ui' | 'typing' | 'scroll';
+type AudioVolume = 'master' | 'volume' | 'officeVol' | 'chimesVol' | 'weatherVol' | 'uiVol' | 'typingVol' | 'scrollVol';
+const SWITCH_OF: Record<Exclude<AudioVolume, 'master'>, AudioSwitch> = { volume: 'music', officeVol: 'office', chimesVol: 'chimes', weatherVol: 'weather', uiVol: 'ui', typingVol: 'typing', scrollVol: 'scroll' };
 
 function aiText(): string {
   switch (engine.state) {
@@ -23,13 +23,13 @@ function aiText(): string {
   }
 }
 
-/** The Settings panel: General (alerts, time speed, snow, ambient mode, AI staff, replay) and Audio (master and five channels). */
+/** The Settings panel: General (alerts, time speed, snow, ambient mode, AI staff, replay) and Audio (master and seven channels). */
 export function initSettings(): void {
   const panel = document.getElementById('settings')!;
   const $ = <T extends HTMLElement>(sel: string) => panel.querySelector<T>(sel)!;
   const alertsBtn = $<HTMLButtonElement>('[data-set="alerts"]');
   const snowBtn = $<HTMLButtonElement>('[data-set="snow"]');
-  const audioBtns = [...panel.querySelectorAll<HTMLButtonElement>('[data-set="music"], [data-set="office"], [data-set="chimes"], [data-set="weather"], [data-set="ui"]')];
+  const audioBtns = [...panel.querySelectorAll<HTMLButtonElement>('[data-set="music"], [data-set="office"], [data-set="chimes"], [data-set="weather"], [data-set="ui"], [data-set="typing"], [data-set="scroll"]')];
   const sliders = [...panel.querySelectorAll<HTMLInputElement>('[data-vol]')];
   const speeds = [...panel.querySelectorAll<HTMLButtonElement>('[data-speed]')];
   const fullscreen = $<HTMLInputElement>('[data-set="fullscreen"]');

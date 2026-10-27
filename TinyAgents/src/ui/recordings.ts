@@ -6,8 +6,8 @@ export interface Recordings {
   keys: Float32Array[];
   click: Float32Array;
   scrolls: Float32Array[];
-  /** one scroll-wheel notch */
-  notch: Float32Array;
+  /** one scroll-wheel notch, for the UI: the click's press, short and fading */
+  tick: Float32Array;
   /** the lift doors sliding (played for opening and, a touch slower, for closing) */
   door: Float32Array;
 }
@@ -36,11 +36,17 @@ function scroll(notch: Float32Array, sr: number, notches: number): Float32Array 
   return d;
 }
 
+/** The click's press from its onset, 12 ms fading out: a crisp wheel tick. */
+function tick(click: Float32Array, sr: number): Float32Array {
+  const d = click.slice(Math.round(sr * 0.0035), Math.round(sr * 0.0155));
+  return d.map((v, i) => v * (1 - i / d.length));
+}
+
 export async function loadRecordings(ctx: AudioContext): Promise<Recordings> {
   const [sheet, click, door] = await Promise.all([decode(ctx, 'keys.wav'), decode(ctx, 'click.wav'), decode(ctx, 'lift-doors.wav')]);
   const sr = ctx.sampleRate;
   const slot = Math.round(sr * KEY_SLOT);
   const keys = Array.from({ length: Math.floor(sheet.length / slot) }, (_, i) => sheet.slice(i * slot, (i + 1) * slot));
   const notch = click.slice(0, Math.round(sr * NOTCH));
-  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), notch: scroll(notch, sr, 1), door };
+  return { keys, click, scrolls: [4, 6, 8, 10].map((n) => scroll(notch, sr, n)), tick: tick(click, sr), door };
 }
