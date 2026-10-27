@@ -3,7 +3,7 @@
 // first request and unloads after a few idle minutes.
 import { execFileSync, spawn } from 'node:child_process';
 
-export const MODEL = 'tinyagent-v8';
+export const MODEL = 'tinyagent-v9-4b';
 const OLLAMA = 'http://127.0.0.1:11435';
 const OLLAMA_ENV = {
   OLLAMA_HOST: '127.0.0.1:11435',

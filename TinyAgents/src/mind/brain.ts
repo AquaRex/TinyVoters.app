@@ -7,6 +7,7 @@ import { roomAt, roomName } from '../agents/rooms';
 import { Conversation, readTime } from '../agents/social';
 import { deviceToken, messages } from '../cloud/api';
 import { Priority, REACTION, REPLY, ROUTINE, engine, mindStats } from './engine';
+import officeLife from './officeLife.json';
 
 /** A concrete thing an agent can do next, as the director ranks it. */
 export interface Choice {
@@ -63,6 +64,8 @@ export interface Mind {
   thought: { text: string; at: number; ms: number } | null;
   /** what it intends to do next when free (an option label like "coffee" or "chat with Theo"), from a thought or a talk */
   plan: { label: string; at: number } | null;
+  /** what others told it today, which it may pass on if it finds it interesting */
+  heard: { from: string; text: string; at: number }[];
   /** when it next thinks on its own (performance.now) */
   nextThought: number;
 }
@@ -80,8 +83,9 @@ function mind(a: Agent): Mind | undefined {
   }
   let m = minds.get(a);
   if (!m) {
-    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null, plan: null, nextThought: performance.now() + 5000 + Math.random() * 40000 };
+    m = { system: persona(a), memory: [], since: performance.now(), last: null, lastLine: null, thought: null, plan: null, heard: [], nextThought: performance.now() + 5000 + Math.random() * 40000 };
     minds.set(a, m);
+    noteTurn(a);
   }
   return m;
 }
@@ -251,7 +255,7 @@ export function noteTurn(a: Agent): void {
     .then((all) => {
       const user = [...all].reverse().find((m) => m.role === 'user')?.text;
       const reply = [...all].reverse().find((m) => m.role === 'assistant')?.text;
-      session.set(a, [user ? `asked "${clip(user, 60)}"` : '', reply ? `answered "${clip(reply, 60)}"` : ''].filter(Boolean).join('; '));
+      session.set(a, [user ? `asked "${clip(user, 90)}"` : '', reply ? `answered "${clip(reply, 90)}"` : ''].filter(Boolean).join('; '));
     })
     .catch(() => undefined);
 }
@@ -275,7 +279,8 @@ function work(a: Agent): string {
   }
   const i = a.info;
   const going = (i.errors ?? 0) > 2 ? 'going badly' : i.busy ? 'in progress' : 'paused';
-  return [i.title ? `${clip(i.title, 50)} (${going})` : '', i.busy && i.tool ? `${i.tool}${i.detail ? ' ' + clip(i.detail, 30) : ''}` : '', session.get(a) ?? ''].filter(Boolean).join('; ');
+  const title = i.title ? `${clip(i.title, 50)} (${going})` : '';
+  return [i.project && title ? `${i.project}: ${title}` : title, i.busy && i.tool ? `${i.tool}${i.detail ? ' ' + clip(i.detail, 30) : ''}` : '', session.get(a) ?? ''].filter(Boolean).join('; ');
 }
 
 /** What someone is working on, in a few words (for chat topics). */
@@ -294,6 +299,45 @@ export function remember(a: Agent, event: string): void {
   }
 }
 
+/** Someone heard `from` say `text`: it stays with them today, and they may pass it on. */
+function hear(a: Agent, from: Agent, text: string): void {
+  const m = minds.get(a);
+  if (m) {
+    m.heard = [...m.heard, { from: from.name, text, at: performance.now() }].slice(-4);
+  }
+}
+
+const seeded = (key: string) => {
+  let h = 2166136261;
+  for (const c of key) {
+    h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  }
+  return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0) / 4294967296);
+};
+const pick = <T>(list: T[], n: number, rand: () => number) => [...list].sort(() => rand() - 0.5).slice(0, n);
+/** What goes on in the office today (the same for everyone), and each person's own gripes today. */
+const todaysNews = pick(officeLife.news, 4, seeded(today));
+const gripes = officeLife.gripes as Record<string, string[]>;
+
+function gripeOf(a: Agent): string {
+  const own = pick(gripes[a.npc ? a.role.id : 'worker'] ?? [], 2, seeded(`${today}|${a.slot}`));
+  return own[Math.floor(Math.random() * own.length)] ?? '';
+}
+
+/** Office news and a gripe now and then, so minds have the everyday office to talk about besides their needs. */
+function officeTalk(a: Agent): string[] {
+  const news = Math.random() < 0.6 ? pick(todaysNews, Math.random() < 0.5 ? 1 : 2, Math.random) : [];
+  const gripe = Math.random() < 0.45 ? gripeOf(a) : '';
+  return [news.length ? `Around the office: ${news.join('; ')}.` : '', gripe ? `Bugging you: ${gripe}.` : ''];
+}
+
+/** What others said to it a while ago (not the person it's talking to), the latest two. */
+function heardLine(m: Mind | undefined, focus?: Agent): string {
+  const now = performance.now();
+  const old = (m?.heard ?? []).filter((h) => h.from !== focus?.name && now - h.at > 60000).slice(-2);
+  return old.length ? `Heard earlier: ${old.map((h) => `${h.from} said "${h.text}" (${ago(now - h.at)})`).join('; ')}.` : '';
+}
+
 /** A compact picture of the agent's situation: time and place, own work and mood, the people it can see, memories. */
 export function context(a: Agent, focus?: Agent): string {
   const feel = NEED_IDS.filter((id) => urgency(a.needs[id]) > 0.55).map((id) => FEEL[id]);
@@ -307,6 +351,8 @@ export function context(a: Agent, focus?: Agent): string {
     seen.length ? `Also here: ${seen.map((b) => `${b.name} (${b.role.title}, ${b.statusText.replace(/ · .*/, '').toLowerCase()})`).join('; ')}.` : focus ? '' : 'Nobody else is here.',
     m?.thought && performance.now() - m.thought.at < ON_MIND * 1000 ? `On your mind: "${m.thought.text}"` : '',
     m && planOf(m) ? `Plan: ${m.plan!.label} (decided ${ago(performance.now() - m.plan!.at)}).` : '',
+    ...officeTalk(a),
+    heardLine(m, focus),
     m?.memory.length ? `Recent: ${m.memory.join(' ')}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -725,6 +771,7 @@ Agent.onSay = (s, text, icon) => {
   const near = listeners(s);
   for (const o of near) {
     remember(o, `${s.name} said "${text}".`);
+    hear(o, s, text);
   }
   const room = roomKey(s);
   const now = performance.now();
@@ -790,6 +837,7 @@ Conversation.writer = (conv, speaker, excuse) => {
     const ms = performance.now() - t;
     m.lastLine = { text: say, at: performance.now(), ms };
     setPlan(speaker, m, r.plan);
+    conv.members.filter((x) => x !== speaker).forEach((x) => hear(x, speaker, say));
     console.info(`[mind] ${speaker.name} in ${kind}: "${say}"${r.end ? ' (ends)' : ''}${excuse ? ' (called away)' : ''} ${Math.round(ms)} ms`);
     queueMicrotask(() => noteTalk(conv));
     return { say, end: r.end === true, icon: AI_MARK };

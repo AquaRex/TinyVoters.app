@@ -21,19 +21,19 @@ The office page talks to it at `http://127.0.0.1:7777` on this computer, and thr
 
 ## Model
 
-The minds are `tinyagent-v8`: Qwen3.5-2B-Base fine-tuned with LoRA on naturally written lines (training workspace
-`G:\LLM\Custom\TinyAgent`, writing guide `data/WRITERS_V8.md`), converted to GGUF with llama.cpp's converter. The
+The minds are `tinyagent-v9-4b`: Qwen3.5-4B-Base fine-tuned with LoRA on naturally written office banter (training
+workspace `G:\LLM\Custom\TinyAgent`, writing guide `data/WRITERS_V9.md`, data `train_v9mix.jsonl`), converted to GGUF with llama.cpp's converter. The
 trained weights carry no MTP layer, so convert with `--no-mtp`, then register it with the hub's Ollama (port 11435, so
 run it while the hub is up, then restart the hub):
 
 ```
-python convert_hf_to_gguf.py runs/v8/merged --no-mtp --outtype q8_0 --outfile ollama/tinyagent-v8-q8_0.gguf
+python convert_hf_to_gguf.py runs/v9-4b/merged --no-mtp --outtype q8_0 --outfile ollama/tinyagent-v9-4b-q8_0.gguf
 set OLLAMA_HOST=127.0.0.1:11435
-ollama create tinyagent-v8 -f ollama/Modelfile.v8
+ollama create tinyagent-v9-4b -f ollama/Modelfile.v9-4b
 ```
 
 The hub sends the exact training prompt (ChatML, no thinking block) in raw mode, so the Modelfile's template is
-never used. About 2.7 GB of GPU memory and under 1 GB of RAM while loaded; it unloads after 3 idle minutes.
+never used. About 4.6 GB of GPU memory and under 1 GB of RAM while loaded; it unloads after 3 idle minutes.
 llama.cpp's prompt cache is switched off (`LLAMA_ARG_CACHE_RAM=0`): left on, it grows to 8 GB of RAM.
 
 ## Reaching the hub from anywhere
