@@ -38,6 +38,7 @@ try {
     openSample,
     samples: () => sampleNames,
     compileScripts: request => compiler.compileScripts(request),
+    openInCodeEditor,
   });
   const preload = await fetchJson('preload.json');
   editorMode = preload.includes('templates');
@@ -107,6 +108,31 @@ async function pickFolder() {
   await sync.pullDisk(false);
   syncs.push(sync);
   return root;
+}
+
+/**
+ * Opens a project's file (or the project folder itself) in VS Code through a vscode:// link. A page isn't told where a
+ * picked folder is on disk, so the first time the user is asked, and the answer is remembered per folder name.
+ * Opening the project folder (File > Open Project in VS Code) asks again, to correct it. Returns a problem, or "".
+ */
+function openInCodeEditor(root, path, line) {
+  const sync = syncs.find(s => s.root === root);
+  if (!sync) return 'This project is only in the browser (a sample), so there is no file on disk to open. Open a project folder from your computer to edit its scripts in VS Code.';
+  const key = 'tinyengine.folder:' + sync.handle.name;
+  let folder = null;
+  try { folder = localStorage.getItem(key); } catch { }
+  if (!folder || path === root) {
+    const answer = prompt(`Where is the folder "${sync.handle.name}" on this computer? (Browsers don't tell pages.)
+` +
+      'Paste its full path, e.g. /Users/you/Projects/' + sync.handle.name, folder ?? '');
+    if (!answer?.trim()) return '';
+    folder = answer.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    try { localStorage.setItem(key, folder); } catch { }
+  }
+  const file = folder + path.slice(root.length);
+  const target = encodeURI((file.startsWith('/') ? '' : '/') + file) + (line > 0 ? ':' + line : '');
+  window.location.href = 'vscode://file' + target;
+  return '';
 }
 
 /**
