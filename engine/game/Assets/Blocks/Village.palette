@@ -1,0 +1,302 @@
+{
+  "Blocks": [
+    {
+      "Name": "Grass",
+      "Top": "5b1d64ce-0e57-5935-9a6e-a09cdca35870",
+      "TopVariants": [
+        "b553d41d-d245-5d65-9c95-dc2b07a6d8a9",
+        "2cc344b8-884d-5e85-a088-5c39e082398f"
+      ],
+      "Side": "c6f24a0c-c439-5cb8-9845-73cbaebe1d4b",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Dirt",
+      "Top": "2ae4aaa0-e797-5192-bf1b-5f401b08fc24",
+      "TopVariants": [],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Path",
+      "Top": "58559fbf-19e5-578a-8cc6-fcd0083af1b2",
+      "TopVariants": [
+        "23c9ec18-4282-5f42-b409-98a6a3e4d1d8",
+        "1d6ef6ea-f7a7-55e6-8402-7c269d1cbd60"
+      ],
+      "Side": "2ae4aaa0-e797-5192-bf1b-5f401b08fc24",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Ragged": 2,
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        0.86,
+        0.8,
+        0.72,
+        1
+      ]
+    },
+    {
+      "Name": "Farmland",
+      "Top": "a02902a9-0670-50e3-8d58-fa2d5df23502",
+      "TopVariants": [],
+      "Side": "2ae4aaa0-e797-5192-bf1b-5f401b08fc24",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Ragged": 1,
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        0.8,
+        0.78,
+        0.75,
+        1
+      ]
+    },
+    {
+      "Name": "Stone",
+      "Top": "41bf276c-53c0-59d1-8a98-90b3ac2781bc",
+      "TopVariants": [],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Water",
+      "Top": "88670bb8-c959-5d3a-bec4-fc2be71201d2",
+      "TopVariants": [],
+      "Side": "f4864d11-19d0-59ac-8f0c-b408597c9fb3",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Liquid": true,
+      "Scroll": [
+        0,
+        0.3
+      ],
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        1.25,
+        1.2,
+        1.12,
+        1
+      ]
+    },
+    {
+      "Name": "Sand",
+      "Top": "8ed755ce-9c65-5653-bba6-91471aefe49c",
+      "TopVariants": [
+        "c9100b69-a428-5621-9340-c329908730b8"
+      ],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Ragged": 1,
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        0.9,
+        0.86,
+        0.78,
+        1
+      ]
+    },
+    {
+      "Name": "Leaves",
+      "Top": "29fac261-3aaf-5098-b3a9-ad1ecebbfd79",
+      "TopVariants": [
+        "587d8cf9-c9dc-5470-8cf7-3643435355ab"
+      ],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Cutout": true,
+      "Walkable": false,
+      "ReceiveShadows": false
+    },
+    {
+      "Name": "Log",
+      "Top": "14d01584-6185-5c96-9b34-c8a868c49fa3",
+      "TopVariants": [],
+      "Side": "de150407-2433-5b58-8418-9696a23d5176",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Walkable": false
+    },
+    {
+      "Name": "Planks",
+      "Top": "76e8ee41-f8f6-513e-b67e-417057da14e5",
+      "TopVariants": [],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Wall",
+      "Top": "fb999fb7-1889-5195-abf1-cdfa8df31e85",
+      "TopVariants": [],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Walkable": false
+    },
+    {
+      "Name": "Hay",
+      "Top": "46af8b39-acc5-5497-bc69-3332cd6b15d2",
+      "TopVariants": [],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Walkable": false
+    },
+    {
+      "Name": "Forest Grass",
+      "Top": "5b1d64ce-0e57-5935-9a6e-a09cdca35870",
+      "TopVariants": [
+        "b553d41d-d245-5d65-9c95-dc2b07a6d8a9",
+        "2cc344b8-884d-5e85-a088-5c39e082398f"
+      ],
+      "Side": "c6f24a0c-c439-5cb8-9845-73cbaebe1d4b",
+      "Color": [
+        0.812,
+        0.878,
+        0.722,
+        1.0
+      ]
+    },
+    {
+      "Name": "Gravel",
+      "Top": "6722f9cf-ee02-5258-8990-5687ea80f837",
+      "TopVariants": [],
+      "Side": "2ae4aaa0-e797-5192-bf1b-5f401b08fc24",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Ragged": 2,
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        0.85,
+        0.83,
+        0.8,
+        1
+      ]
+    },
+    {
+      "Name": "Birch Log",
+      "Top": "14d01584-6185-5c96-9b34-c8a868c49fa3",
+      "TopVariants": [],
+      "Side": "a62481c8-78f3-5458-b6e0-5996dfcfcd09",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Walkable": false
+    },
+    {
+      "Name": "Birch Leaves",
+      "Top": "14eead28-3667-5180-9e9b-daf7299843d9",
+      "TopVariants": [
+        "0d893afb-3668-55f9-bfa6-64c190dde608"
+      ],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Cutout": true,
+      "Walkable": false,
+      "ReceiveShadows": false
+    },
+    {
+      "Name": "Pine Leaves",
+      "Top": "821f3a20-64eb-5ab7-affa-34ac761f44c9",
+      "TopVariants": [
+        "12707c42-a8ed-5e30-bc8e-c6337070313d"
+      ],
+      "Side": null,
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Cutout": true,
+      "Walkable": false,
+      "ReceiveShadows": false
+    },
+    {
+      "Name": "Rock",
+      "Top": "7693a0f8-e58e-55fe-a173-23c1f381806e",
+      "TopVariants": [],
+      "Side": "41bf276c-53c0-59d1-8a98-90b3ac2781bc",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Ragged": 1,
+      "EdgeWidth": 1,
+      "EdgeColor": [
+        0.8,
+        0.8,
+        0.82,
+        1
+      ]
+    }
+  ]
+}

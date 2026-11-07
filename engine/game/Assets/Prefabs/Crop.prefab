@@ -1,0 +1,39 @@
+{
+  "id": "f7d13432-596d-5c7b-83e8-bcd187dfbae4",
+  "name": "Crop",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "c58be0f9-c43f-565f-8eff-8e1f43d29aef",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          0.9,
+          0.9,
+          0.9
+        ]
+      }
+    },
+    {
+      "type": "TinyEngine.MeshRenderer",
+      "id": "b54da68d-26f2-5913-8197-a78c4b96ad85",
+      "data": {
+        "Enabled": true,
+        "Mesh": "00000000-0000-0000-0000-000000000005",
+        "Material": "a02e7d56-d9dc-5f09-996a-5987e4179b94",
+        "CastShadows": false
+      }
+    }
+  ],
+  "children": []
+}

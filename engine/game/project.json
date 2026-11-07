@@ -1,0 +1,5 @@
+{
+  "name": "CozyVillage",
+  "startScene": "Assets/Scenes/Village.scene",
+  "renderPipeline": "Assets/Settings/RenderPipeline.renderpipeline"
+}

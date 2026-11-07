@@ -1,0 +1,17 @@
+{
+  "Texture": "88670bb8-c959-5d3a-bec4-fc2be71201d2",
+  "SideTexture": null,
+  "Color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "Uv": "World",
+  "Unlit": true,
+  "Scroll": [
+    0,
+    0.1
+  ],
+  "Outlines": false
+}

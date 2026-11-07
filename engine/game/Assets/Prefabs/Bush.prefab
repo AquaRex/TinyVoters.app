@@ -1,0 +1,69 @@
+{
+  "id": "0c7c823d-7e53-55ef-9b52-309e83b08d58",
+  "name": "Bush",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "7ebae2f0-7be6-5b5f-9875-2e5f3280b199",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "ea9ac978-7bcf-53b6-a8f3-9d8e57eb41b5",
+      "name": "Leaves",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "bef8505f-c6e5-5707-9d6b-c7ae29bba88e",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.3,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.9,
+              0.6,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "5e8064aa-388b-59fc-9ba9-e29bbccdf450",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9927c14e-a0eb-5f27-b220-ca14458a7b3c",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

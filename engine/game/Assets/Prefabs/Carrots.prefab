@@ -1,0 +1,39 @@
+{
+  "id": "a82f5b9d-78eb-5312-985e-53697c132622",
+  "name": "Carrots",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "3cae3efc-7c59-580e-8ee6-7add49773f11",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          0.9,
+          0.9,
+          0.9
+        ]
+      }
+    },
+    {
+      "type": "TinyEngine.MeshRenderer",
+      "id": "c27a6245-85d8-55a9-adf5-ebf3c6e0eadf",
+      "data": {
+        "Enabled": true,
+        "Mesh": "00000000-0000-0000-0000-000000000005",
+        "Material": "7e8e3315-0bad-5340-9a7d-c84c0c16f036",
+        "CastShadows": false
+      }
+    }
+  ],
+  "children": []
+}

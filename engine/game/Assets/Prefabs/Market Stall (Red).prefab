@@ -1,0 +1,464 @@
+{
+  "id": "1bf8f9c2-da8d-5f26-98bf-a9da1e6b8a24",
+  "name": "Market Stall",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "51825c61-4003-5e70-af0a-66de70113145",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "type": "Cutaway",
+      "id": "1344b6fa-9f82-587d-b56f-53e0303dd4a7",
+      "data": {
+        "Enabled": true,
+        "CutHeight": 1.3,
+        "Speed": 12.0
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "dd680432-ded3-52d0-8145-61c6fb930c52",
+      "name": "Post 0",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "8da11419-e1fd-5c87-800c-ef4a9fe7b023",
+          "data": {
+            "LocalPosition": [
+              -1.5,
+              1.1,
+              -1.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.24,
+              2.2,
+              0.24
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "67181aa9-ddc7-56fd-9c5e-1421cff83f66",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "e541587e-2357-572f-899e-485b05fcca41",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "9ff8beec-9bcd-5422-922e-65855e248e1b",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "602faaca-332a-5f5f-a054-f1fbb8e53c12",
+      "name": "Post 1",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "c6e8654b-8517-509b-baf7-2ed1834729f2",
+          "data": {
+            "LocalPosition": [
+              1.5,
+              1.1,
+              -1.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.24,
+              2.2,
+              0.24
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "7d4df874-7e18-5079-badd-a5a2dfd26843",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "e541587e-2357-572f-899e-485b05fcca41",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "6721ae3f-401f-5f42-829b-55a305285411",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "3d038b14-8da8-580a-ab1e-927d8833ccd5",
+      "name": "Post 2",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "b9ace228-c29a-514e-a4d6-877c020d52d3",
+          "data": {
+            "LocalPosition": [
+              -1.5,
+              1.1,
+              1.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.24,
+              2.2,
+              0.24
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "0ce13954-05dc-5454-bb9d-7060c20a89b4",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "e541587e-2357-572f-899e-485b05fcca41",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "3b673abf-a8c3-59d5-8047-ce816137b4d4",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "4d6f13ca-89c5-5568-8d0e-5362f123ec02",
+      "name": "Post 3",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "9fff9490-b326-5f34-9096-c5a9b1fcdb84",
+          "data": {
+            "LocalPosition": [
+              1.5,
+              1.1,
+              1.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.24,
+              2.2,
+              0.24
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "58bcd312-14b1-52ae-a433-98606f38bd93",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "e541587e-2357-572f-899e-485b05fcca41",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "4c188812-b493-5a6e-a409-d564acf1ece8",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "8f3d4cae-a9fd-5a74-bd55-08fa89932b68",
+      "name": "Counter",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "3d7b8acc-59d8-53c3-8a81-244e86b19c06",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.45,
+              0.8
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              3.0,
+              0.9,
+              0.6
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "73aeb315-35b4-5b49-ad70-dbb0f7212979",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "e89cf110-399d-5f70-995c-9b3ec392ed3e",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "69ddc8de-b767-5a07-8cb4-b475a94b73e7",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "da173193-9892-53c8-a685-f80ba2719151",
+      "name": "Awning",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "95b42981-ba0a-5fea-a12c-6912771d502e",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              2.325,
+              -0.4
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              3.5,
+              0.25,
+              1.7
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "b8167260-3d69-58ff-93ff-c8e7447d1de9",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "299cb407-1641-57bc-a485-87c72cfe34b1",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "0c0b3296-e0ed-5579-bfab-0cafbfd71da0",
+      "name": "Valance",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "ab2d7178-c548-539b-be04-826187582c01",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              2.05,
+              0.42
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              3.5,
+              0.3,
+              0.06
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "4d5248d8-be53-5e55-a975-84119bab969d",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "299cb407-1641-57bc-a485-87c72cfe34b1",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "4c8b36bf-5ba7-5b39-87fa-5d1289d5346f",
+      "name": "Pumpkin 0",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "bd072e54-81bb-57bf-9ef0-a804e615967d",
+          "data": {
+            "LocalPosition": [
+              -0.9,
+              1.08,
+              0.8
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.4,
+              0.36,
+              0.4
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "6e07b72e-ffd0-52e3-994b-de88bda8177b",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "6fcbd5da-fb9a-5fb0-bbe6-1d8592778017",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "39d45b01-d60a-5c3a-a799-101e00f8770c",
+      "name": "Pumpkin 1",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "c50118a5-470a-5a2d-820c-51478ae71f31",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              1.08,
+              0.8
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.4,
+              0.36,
+              0.4
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "1c5cca8b-6e73-5a31-a86d-eb8e75576db9",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "6fcbd5da-fb9a-5fb0-bbe6-1d8592778017",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "a75bbaaf-7151-5d0f-b7bc-e388592be1d5",
+      "name": "Pumpkin 2",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "a1df1aa8-8e8f-5480-bf8a-f657419385df",
+          "data": {
+            "LocalPosition": [
+              0.9,
+              1.08,
+              0.8
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.4,
+              0.36,
+              0.4
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "654dec45-b4e5-58d4-bf1c-7791081b3522",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "6fcbd5da-fb9a-5fb0-bbe6-1d8592778017",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

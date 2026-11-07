@@ -1,0 +1,69 @@
+{
+  "id": "0dd8949e-f438-55fe-a46b-15ed050ccb98",
+  "name": "Lily Pad",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "bddd2a5a-e00c-5897-9463-cf5bb3ff9fcc",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "1c0b6604-c2d7-5cf6-9b38-bf33c1ba27e6",
+      "name": "Pad",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "27b77d5e-31d4-5b3e-8f3e-48c828b50a0f",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.015,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.6,
+              0.03,
+              0.6
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "222e921d-84e0-58ad-a270-be3fb8425cb1",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "abd2cb7a-ce92-5198-8296-5a3223550157",
+            "CastShadows": false
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

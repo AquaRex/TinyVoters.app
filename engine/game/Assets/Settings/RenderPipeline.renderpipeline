@@ -1,0 +1,9 @@
+{
+  "RenderScale": 1,
+  "Shadows": true,
+  "ShadowResolution": "High",
+  "ShadowDistance": 40,
+  "MaxPointLights": 8,
+  "LightBands": 5,
+  "DefaultProfile": "d9f11ed5-e4bc-5f83-9677-a0588b96b258"
+}

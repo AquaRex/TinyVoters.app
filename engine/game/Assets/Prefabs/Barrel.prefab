@@ -1,0 +1,56 @@
+{
+  "id": "144d4796-841a-58f1-abd1-17595a91738f",
+  "name": "Barrel",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "557f924e-4e76-5aaf-a231-d106cbd3c109",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "type": "TinyEngine.MeshRenderer",
+      "id": "49020376-5e4d-53cd-801a-6599c51fdba1",
+      "data": {
+        "Enabled": true,
+        "Mesh": "b6b63cdd-cd5e-55fc-bf89-bf7f267c2791",
+        "Material": "eb1a08e0-c949-533f-9cba-484c4cc3bedd",
+        "CastShadows": true
+      }
+    },
+    {
+      "type": "TinyEngine.BoxCollider",
+      "id": "ce72cbc7-7133-517e-9f95-2c52853c5fb2",
+      "data": {
+        "Enabled": true,
+        "Center": [
+          0,
+          0.45,
+          0
+        ],
+        "Size": [
+          0.8,
+          0.9,
+          0.8
+        ]
+      }
+    }
+  ],
+  "children": []
+}

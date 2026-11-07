@@ -1,0 +1,207 @@
+{
+  "id": "ac5edff6-a7fe-5bfe-9641-355e07514836",
+  "name": "Crates",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "4f160445-9bbd-5646-a155-200d51e04d88",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "72d518e4-0301-541f-9c5c-cf36e47e0ab9",
+      "name": "Crate 0",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "32d5ede4-3133-5d3f-bfd4-05965328aa93",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.4,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "dbc2f200-020a-5a06-991d-661d4ee7287c",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "7bbb36ee-3677-5f55-9fc5-6fd0f6900107",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "39d0d468-4552-51ba-bd60-f22b59f85441",
+      "name": "Crate 1",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "a7d9defb-a393-58b9-93dd-4ff865d23444",
+          "data": {
+            "LocalPosition": [
+              0.85,
+              0.4,
+              0.1
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "be5f138c-bf4e-59df-8928-37e02d01d79b",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "ef4d3e42-1a41-51e9-a1c2-6636207f3f68",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "883bca03-4f5e-5923-b4b3-1527fc2be034",
+      "name": "Crate 2",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "c9cf7cac-6aab-5570-93c6-b9365eb39a9b",
+          "data": {
+            "LocalPosition": [
+              0.4,
+              0.4,
+              -0.75
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "48aa9b40-0533-5107-879e-d1fa91406cee",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "e4877ec5-6f5f-50eb-a24a-3b08148f9e88",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "fda6b1af-746b-5e05-ab46-1d80359f2256",
+      "name": "Crate Top",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "adb2a915-a3fb-583a-9c89-2b501fb37dec",
+          "data": {
+            "LocalPosition": [
+              0.05,
+              1.2,
+              0.05
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "7328f669-4e0b-5f14-8417-4332ffd13435",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "id": "61d85319-b711-532b-9f70-906b4fcb4e2d",
+  "name": "Crates",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "db10dd9a-8c4e-55b3-8b19-f806a49cc809",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "5232855e-a81c-54a2-976c-7628c8380fdc",
+      "name": "Crate 0",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "3d9a010b-c847-5f41-b9f6-c62032774572",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.4,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "3cca4219-8fca-57b0-889a-5ca580811503",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "9c4f80ac-950f-5cdd-9aa0-0726897b9918",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "218e7dcc-b51d-5561-8c9b-108cc592936f",
+      "name": "Crate 1",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "ea744388-5dbc-555f-9fd6-48cab3e1be85",
+          "data": {
+            "LocalPosition": [
+              0.85,
+              0.4,
+              0.1
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.8,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "ed3d2edc-e2f7-527a-985e-5da7c6ba21ea",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "9c924c21-be4b-5e7f-8161-52ded5ea9633",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "096bcb6a-0d90-508c-8ceb-6b55420d8275",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

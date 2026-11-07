@@ -1,0 +1,19 @@
+{
+  "Texture": "29fac261-3aaf-5098-b3a9-ad1ecebbfd79",
+  "SideTexture": null,
+  "Color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "Uv": "World",
+  "Ragged": 2,
+  "EdgeWidth": 1,
+  "EdgeColor": [
+    0.42,
+    0.5,
+    0.36,
+    1
+  ]
+}

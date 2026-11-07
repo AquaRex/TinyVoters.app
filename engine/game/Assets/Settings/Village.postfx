@@ -1,0 +1,62 @@
+{
+  "Effects": [
+    {
+      "$type": "TinyEngine.AmbientOcclusion",
+      "Active": true,
+      "Radius": 0.5,
+      "Intensity": 0.8
+    },
+    {
+      "$type": "TinyEngine.PixelOutline",
+      "Active": true,
+      "OutlineStrength": 0.65,
+      "HighlightStrength": 0.2,
+      "DepthThreshold": 0.2
+    },
+    {
+      "$type": "TinyEngine.LightShafts",
+      "Active": true,
+      "Color": [
+        1,
+        0.93,
+        0.72,
+        1
+      ],
+      "Intensity": 0.035,
+      "Angle": 35,
+      "Width": 0.16,
+      "Speed": 0.008
+    },
+    {
+      "$type": "TinyEngine.Bloom",
+      "Active": true,
+      "Threshold": 1.0,
+      "Intensity": 0.4
+    },
+    {
+      "$type": "TinyEngine.WhiteBalance",
+      "Active": true,
+      "Temperature": 0.1,
+      "Tint": 0.0
+    },
+    {
+      "$type": "TinyEngine.ColorAdjustments",
+      "Active": true,
+      "PostExposure": 0.0,
+      "Contrast": 1.04,
+      "Saturation": 1.06,
+      "HueShift": 0,
+      "ColorFilter": [
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "$type": "TinyEngine.Tonemapping",
+      "Active": true,
+      "Mode": "Neutral"
+    }
+  ]
+}

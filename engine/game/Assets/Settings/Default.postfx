@@ -1,0 +1,16 @@
+{
+  "Effects": [
+    {
+      "$type": "TinyEngine.PixelOutline",
+      "Active": true,
+      "OutlineStrength": 0.45,
+      "HighlightStrength": 0.25,
+      "DepthThreshold": 0.25
+    },
+    {
+      "$type": "TinyEngine.Tonemapping",
+      "Active": true,
+      "Mode": "Neutral"
+    }
+  ]
+}

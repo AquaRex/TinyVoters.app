@@ -1,0 +1,24 @@
+{
+  "Texture": "88670bb8-c959-5d3a-bec4-fc2be71201d2",
+  "SideTexture": "f4864d11-19d0-59ac-8f0c-b408597c9fb3",
+  "Color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "Uv": "World",
+  "Scroll": [
+    0,
+    0.3
+  ],
+  "Outlines": false,
+  "Unlit": true,
+  "EdgeWidth": 1,
+  "EdgeColor": [
+    1.25,
+    1.2,
+    1.12,
+    1
+  ]
+}

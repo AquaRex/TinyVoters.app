@@ -1,0 +1,19 @@
+{
+  "Texture": null,
+  "SideTexture": null,
+  "Color": [
+    1.0,
+    0.902,
+    0.659,
+    1.0
+  ],
+  "Uv": "Mesh",
+  "Emission": [
+    1.0,
+    0.702,
+    0.278,
+    1.0
+  ],
+  "EmissionIntensity": 2.2,
+  "Outlines": false
+}

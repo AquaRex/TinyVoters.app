@@ -1,0 +1,108 @@
+{
+  "id": "86e7fe37-14bd-5c82-a72e-19558bb1c1aa",
+  "name": "Mushroom",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "aa32b97a-d4e0-546f-9d27-c991d45ae87d",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "2c19a4f4-b05d-55e9-93ae-9d51bd935b6e",
+      "name": "Stem",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "04f5f92f-d385-5733-bef5-fc7911211d6b",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.1,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.12,
+              0.2,
+              0.12
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "9293fb1d-3d87-561c-a654-5f8aba18e491",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "3c5ab9b0-e102-5a46-a779-eccd3c0f26b9",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "bda0b324-8da2-5985-ae06-8c116a405acc",
+      "name": "Cap",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "7957e461-796e-552c-91c8-20f9a8e084dc",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.26,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.32,
+              0.12,
+              0.32
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "a906041a-1651-5574-9157-c912c34021f0",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "dedf7f36-ef52-5f0e-abf2-046e38754048",
+            "CastShadows": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

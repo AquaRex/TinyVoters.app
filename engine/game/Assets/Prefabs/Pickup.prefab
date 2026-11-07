@@ -1,0 +1,79 @@
+{
+  "id": "f10e1225-e21f-58ae-b484-1a2e3a609e0f",
+  "name": "Pickup",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "de3f3ded-7868-5465-9273-8e18b201583c",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "type": "Pickup",
+      "id": "3ca83cc8-a734-51b4-93b8-be3742c71ca5",
+      "data": {
+        "Enabled": true,
+        "ArrowDisplay": "cad26245-5de8-5c80-ae19-f10ebfcc3077",
+        "MagnetRange": 2.5,
+        "Lifetime": 60.0
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "9445bd8e-6017-5faf-8d50-ea2fcee3898a",
+      "name": "Icon",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "39c70919-86a2-55cc-9218-d48aef31fffa",
+          "data": {
+            "LocalPosition": [
+              0,
+              0.35,
+              0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.6,
+              0.6,
+              0.6
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "021c9cde-8066-53f7-a328-70eba1d7c0d7",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000005",
+            "Material": "cad26245-5de8-5c80-ae19-f10ebfcc3077",
+            "CastShadows": false
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

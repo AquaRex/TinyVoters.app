@@ -1,0 +1,79 @@
+{
+  "id": "e98489ed-a1e3-589a-9285-14ff838dae65",
+  "name": "Arrow",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "9c782630-0b84-571d-bee3-45b15e5379f5",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "type": "Projectile",
+      "id": "8fcb7054-3335-5775-a35b-2630ff9a6dd3",
+      "data": {
+        "Enabled": true,
+        "Speed": 16.0,
+        "Damage": 2.0,
+        "Team": "Player"
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "e47d76af-1708-50bb-a695-2abf11e35847",
+      "name": "Model",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "b1922498-f97b-587f-9e5e-4f11a3624f11",
+          "data": {
+            "LocalPosition": [
+              0,
+              0,
+              0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "75a3521e-0762-55d3-932e-27ebb8b6eb55",
+          "data": {
+            "Enabled": true,
+            "Mesh": "ab1572b4-8007-5a6e-9d57-5782f730d99a",
+            "Material": "0dcc2e37-0433-5e8a-a5cd-fa70ab8956a7",
+            "CastShadows": false
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

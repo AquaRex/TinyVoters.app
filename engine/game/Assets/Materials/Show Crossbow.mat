@@ -1,0 +1,13 @@
+{
+  "Texture": "7bcec0cb-4c9e-5fbe-8338-3130d37dbefc",
+  "SideTexture": null,
+  "Color": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "Uv": "Mesh",
+  "Billboard": true,
+  "Outlines": false
+}

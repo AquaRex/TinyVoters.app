@@ -1,0 +1,76 @@
+{
+  "id": "cccef43d-9359-59e7-b640-9f52ee06dcef",
+  "name": "Hay Bale",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "91bd5784-adba-595b-ad8b-245595e0876e",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "d769888f-a94f-5cb6-a8fe-80f2a4ea8900",
+      "name": "Bale",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "e7f5af5c-e5a2-54a9-8c07-c466fb937b35",
+          "data": {
+            "LocalPosition": [
+              0.0,
+              0.4,
+              0.0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              1.0,
+              0.8,
+              0.8
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "c6868079-c2a4-5ffd-b709-127d64d4c9b4",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000001",
+            "Material": "4779a43f-c05a-54b7-beab-8c7a8a097e8f",
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "TinyEngine.BoxCollider",
+          "id": "5894bed9-c4a3-53f6-9b6b-2436bac37ae5",
+          "data": {
+            "Enabled": true
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

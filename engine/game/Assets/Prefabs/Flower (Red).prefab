@@ -1,0 +1,69 @@
+{
+  "id": "2a44174a-abc7-5bb5-9ef0-e10bfff2eca0",
+  "name": "Flower",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "d4ad7b36-084e-501b-b899-e0f4fcaa25f5",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "children": [
+    {
+      "id": "7f6b9b02-34f1-57f9-aa8b-17ee3a880f4f",
+      "name": "Bloom",
+      "active": true,
+      "components": [
+        {
+          "type": "TinyEngine.Transform",
+          "id": "5b26a270-1266-572c-b8be-881374f0c17b",
+          "data": {
+            "LocalPosition": [
+              0,
+              0.012,
+              0
+            ],
+            "LocalEulerAngles": [
+              0,
+              0,
+              0
+            ],
+            "LocalScale": [
+              0.85,
+              1,
+              0.85
+            ]
+          }
+        },
+        {
+          "type": "TinyEngine.MeshRenderer",
+          "id": "98e2c4b0-3347-5cb6-b543-59db77b66139",
+          "data": {
+            "Enabled": true,
+            "Mesh": "00000000-0000-0000-0000-000000000002",
+            "Material": "a0dce10b-23a6-5dbe-b668-38e833aa3f4d",
+            "CastShadows": false
+          }
+        }
+      ],
+      "children": []
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "f05063a0-59cc-5fb8-8e3b-d5e476012f91",
+  "name": "Tall Grass",
+  "active": true,
+  "components": [
+    {
+      "type": "TinyEngine.Transform",
+      "id": "eba00525-d01d-5883-8d37-9ce12f429756",
+      "data": {
+        "LocalPosition": [
+          0,
+          0,
+          0
+        ],
+        "LocalEulerAngles": [
+          0,
+          0,
+          0
+        ],
+        "LocalScale": [
+          0.9,
+          0.9,
+          0.9
+        ]
+      }
+    },
+    {
+      "type": "TinyEngine.MeshRenderer",
+      "id": "96843437-2704-55cc-b528-c6b070507704",
+      "data": {
+        "Enabled": true,
+        "Mesh": "00000000-0000-0000-0000-000000000005",
+        "Material": "facf33f2-9c0d-51ca-98d9-80288f2b0cec",
+        "CastShadows": false
+      }
+    }
+  ],
+  "children": []
+}
