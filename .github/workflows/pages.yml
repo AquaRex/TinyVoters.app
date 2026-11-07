@@ -31,7 +31,7 @@ jobs:
           npm ci
           npm run build -- --base=/tinyagents/ --outDir ../_site/tinyagents
       - name: Add TinyVoters
-        run: cp -r CNAME index.html manifest.webmanifest ServiceWorker.js Build TemplateData _site/
+        run: cp -r CNAME index.html manifest.webmanifest ServiceWorker.js Build TemplateData engine _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
