@@ -1,0 +1,6 @@
+{
+  "name": "TopDown",
+  "startScene": "Assets/Scenes/Main.scene",
+  "renderPipeline": "Assets/Settings/RenderPipeline.renderpipeline",
+  "description": "A playable top-down starter: a debug world, a player that walks and jumps, a following camera."
+}

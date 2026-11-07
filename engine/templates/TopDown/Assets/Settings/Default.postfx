@@ -1,0 +1,22 @@
+{
+  "Effects": [
+    {
+      "$type": "TinyEngine.AmbientOcclusion",
+      "Active": true,
+      "Radius": 0.5,
+      "Intensity": 0.6
+    },
+    {
+      "$type": "TinyEngine.PixelOutline",
+      "Active": true,
+      "OutlineStrength": 0.5,
+      "HighlightStrength": 0.2,
+      "DepthThreshold": 0.25
+    },
+    {
+      "$type": "TinyEngine.Tonemapping",
+      "Active": true,
+      "Mode": "Neutral"
+    }
+  ]
+}

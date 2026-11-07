@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- The web editor's C# compiler, loaded in a hidden frame; see TinyEngine.Web.Compiler.csproj. -->
+<meta charset="utf-8">
+<title>TinyEngine compiler</title>
+<script type="module">
+  import { dotnet } from './_framework/dotnet.js';
+  import { download } from '../files.js';
+
+  // The editor waits on this, then calls compileScripts(json) -> json synchronously.
+  window.compilerReady = (async () => {
+    const runtime = await dotnet.create();
+    await download(runtime.Module, '../refs', '/refs');
+    await runtime.runMain();
+    const exports = await runtime.getAssemblyExports(runtime.getConfig().mainAssemblyName);
+    window.compileScripts = exports.TinyEngine.Web.Compiler.CompilerApp.Compile;
+  })();
+</script>

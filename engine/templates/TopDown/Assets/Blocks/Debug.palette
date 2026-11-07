@@ -1,0 +1,62 @@
+{
+  "Blocks": [
+    {
+      "Name": "Floor",
+      "Top": "f721cfc3-0b0a-59d9-a9ba-fb5cfd945842",
+      "Side": "07b5a3f8-6218-5ae1-b17a-fa0013e01975",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Grass",
+      "Top": "1f83f628-4105-59d2-acee-44bee17c92ed",
+      "Side": "07b5a3f8-6218-5ae1-b17a-fa0013e01975",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Wall",
+      "Top": "44cf443f-06c6-54cd-83ee-7debdebc56cb",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Walkable": false
+    },
+    {
+      "Name": "Stone",
+      "Top": "07b5a3f8-6218-5ae1-b17a-fa0013e01975",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "Name": "Water",
+      "Top": "dbe5efdf-2131-5edb-afe3-b477d176878c",
+      "Color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Liquid": true,
+      "Scroll": [
+        0,
+        0.2
+      ]
+    }
+  ]
+}

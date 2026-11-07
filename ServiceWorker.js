@@ -1,6 +1,6 @@
 // Bump APP_VERSION on every deploy. This is the single source of truth that
 // invalidates the old cache and forces clients to pick up the new build.
-const APP_VERSION = "0.1.9";
+const APP_VERSION = "0.1.10";
 const cacheName = `LitterBoxGames-TinyVoters.app-${APP_VERSION}`;
 
 // Long-lived assets that are safe to cache aggressively. The HTML shell
@@ -44,6 +44,10 @@ self.addEventListener('fetch', function (e) {
     if (req.method !== 'GET') return;
 
     const url = new URL(req.url);
+
+    // The TinyEngine build at /engine/ manages its own files (its game files keep their names between builds, so
+    // caching them here would serve stale ones).
+    if (url.pathname.startsWith('/engine/')) return;
     const isHtml =
         req.mode === 'navigate' ||
         req.destination === 'document' ||

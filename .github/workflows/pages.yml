@@ -1,4 +1,5 @@
-# Publishes tinyvoters.app: the Unity build as-is at the root, and Tiny Agents (built from TinyAgents/) at /tinyagents/.
+# Publishes tinyvoters.app: the Unity build as-is at the root, Tiny Agents (built from TinyAgents/) at /tinyagents/,
+# and the TinyEngine web build (engine/, copied as-is) at /engine/.
 name: Deploy to GitHub Pages
 
 on:
